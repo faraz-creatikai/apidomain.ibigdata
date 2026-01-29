@@ -43,7 +43,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "https://property.ibigdata.in",
+      "https://domain.ibigdata.in",
       
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
