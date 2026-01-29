@@ -53,7 +53,7 @@ customerRoutes.put(
   updateCustomer
 );
 
-// ✅ Assign & Reassign APIs
+// Assign & Reassign APIs
 customerRoutes.post("/assign", assignCustomer);
 customerRoutes.post("/assign-all-city", bulkAssignCityCustomers);
 

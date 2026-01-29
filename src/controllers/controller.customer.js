@@ -308,43 +308,43 @@ export const getCustomer = async (req, res, next) => {
       });
     }
 
-   /*      if (keyword) {
-      const tokens = keyword.split(" ").filter(Boolean);
-
-      // Default fields (if user does NOT select anything)
-      const defaultFields = [
-        "Description",
-        "Campaign",
-        "CustomerType",
-        "CustomerSubType",
-        "customerName",
-        "ContactNumber",
-        "City",
-        "Location",
-        "SubLocation",
-        "Price",
-        "ReferenceId",
-      ];
-
-      // User-selected fields (comma-separated)
-      // User-selected fields (array or single string)
-      let selectedFields;
-      if (!SearchIn) {
-        selectedFields = defaultFields; // default fields if nothing selected
-      } else if (Array.isArray(SearchIn)) {
-        selectedFields = SearchIn.map(f => f.trim());
-      } else {
-        selectedFields = SearchIn.split(",").map(f => f.trim());
-      }
-
-      AND.push({
-        AND: tokens.map((t) => ({
-          OR: selectedFields.map((field) => ({
-            [field]: { contains: t },
-          })),
-        })),
-      });
-    } */
+    /*      if (keyword) {
+       const tokens = keyword.split(" ").filter(Boolean);
+ 
+       // Default fields (if user does NOT select anything)
+       const defaultFields = [
+         "Description",
+         "Campaign",
+         "CustomerType",
+         "CustomerSubType",
+         "customerName",
+         "ContactNumber",
+         "City",
+         "Location",
+         "SubLocation",
+         "Price",
+         "ReferenceId",
+       ];
+ 
+       // User-selected fields (comma-separated)
+       // User-selected fields (array or single string)
+       let selectedFields;
+       if (!SearchIn) {
+         selectedFields = defaultFields; // default fields if nothing selected
+       } else if (Array.isArray(SearchIn)) {
+         selectedFields = SearchIn.map(f => f.trim());
+       } else {
+         selectedFields = SearchIn.split(",").map(f => f.trim());
+       }
+ 
+       AND.push({
+         AND: tokens.map((t) => ({
+           OR: selectedFields.map((field) => ({
+             [field]: { contains: t },
+           })),
+         })),
+       });
+     } */
 
 
 
@@ -607,12 +607,28 @@ export const createCustomer = async (req, res, next) => {
       SitePlan = await Promise.all(uploads);
     }
 
+    // --- Get active fields from master ---
+    const activeFields = await prisma.customerFields.findMany({
+      where: { Status: "Active" },
+      select: { Name: true },
+    });
+    const allowedKeys = new Set(activeFields.map((f) => f.Name));
+
+    const customerFieldsRaw = body.CustomerFields ? JSON.parse(body.CustomerFields) : {};
+    // --- Build CustomerFields JSON ---
+    const customerFieldsData = {};
+    for (const key in customerFieldsRaw) {
+      if (allowedKeys.has(key)) {
+        customerFieldsData[key] = customerFieldsRaw[key];
+      }
+    }
     const newCustomer = await prisma.customer.create({
       data: {
         ...body,
         Email: body.Email || undefined,
         CustomerImage: JSON.stringify(CustomerImage),
         SitePlan: JSON.stringify(SitePlan),
+        CustomerFields: customerFieldsData,
         AssignToId: admin.role === "user" ? admin._id || admin.id : undefined,
         CreatedById: admin._id || admin.id,
       },
@@ -875,6 +891,33 @@ export const updateCustomer = async (req, res, next) => {
     // FETCH CUSTOMER
     const existing = await prisma.customer.findUnique({ where: { id } });
     if (!existing) return next(new ApiError(404, "Customer not found"));
+
+    // --- Get active fields from master ---
+    const activeFields = await prisma.customerFields.findMany({
+      where: { Status: "Active" },
+      select: { Name: true },
+    });
+    const allowedKeys = new Set(activeFields.map((f) => f.Name));
+
+    // --- Build CustomerFields JSON from request ---
+    const customerFieldsRaw = req.body.CustomerFields
+      ? typeof req.body.CustomerFields === "string"
+        ? JSON.parse(req.body.CustomerFields)
+        : req.body.CustomerFields
+      : {};
+
+    // --- Merge with existing CustomerFields ---
+    const existingCustomerFields = existing.CustomerFields || {};
+    const mergedCustomerFields = {
+      ...existingCustomerFields,
+      ...Object.fromEntries(
+        Object.entries(customerFieldsRaw).filter(([key]) =>
+          allowedKeys.has(key)
+        )
+      ),
+    };
+    updateData.CustomerFields = mergedCustomerFields;
+
 
     // ROLE PERMISSIONS
     if (

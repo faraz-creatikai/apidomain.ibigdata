@@ -197,6 +197,14 @@ model Price {
   updatedAt DateTime @updatedAt
 }
 
+model CustomerFields {
+  id        String   @id @default(uuid())
+  Name      String
+  Status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Expense {
   id        String   @id @default(uuid())
   Name      String
@@ -358,6 +366,7 @@ model Customer {
   GoogleMap       String? @default("")
   URL             String? @default("")
   Price           String? @default("")
+  CustomerFields  Json?   @default("{}")
   CustomerImage   Json?   @default("[]")
   SitePlan        Json?   @default("[]")
   isFavourite     Boolean @default(false)

@@ -29,7 +29,7 @@ const keyMap = {
   description: "Description",
   referenceid: "ReferenceId",
   price: "Price",
-  url:"URL",
+  url: "URL",
 };
 
 // Clean numbers
@@ -140,6 +140,16 @@ export const importCustomers = async (req, res, next) => {
     // ----------------------------
     const normalized = sheet.map((row) => normalizeKeys(row, manualMap));
 
+    const activeFields = await prisma.customerFields.findMany({
+      where: { Status: "Active" },
+      select: { Name: true },
+    });
+
+    const allowedCustomerFieldKeys = new Set(
+      activeFields.map((f) => f.Name.toLowerCase())
+    );
+
+
     // ----------------------------
     // Process rows
     // ----------------------------
@@ -149,8 +159,54 @@ export const importCustomers = async (req, res, next) => {
 
       const email = safeTrim(r.Email) || null;
 
+      const customerFields = {};
+
+      const prismaCustomerKeys = new Set([
+  "campaign",
+  "customertype",
+  "customersubtype",
+  "customername",
+  "contactnumber",
+  "city",
+  "location",
+  "sublocation",
+  "area",
+  "adderess",
+  "email",
+  "facillities",
+  "description",
+  "customerdate",
+  "price",
+  "url",
+  "other",
+  "referenceid",
+  "customerid",
+  "customeryear",
+  "video",
+  "verified",
+  "googlemap"
+]);
+
+for (const key in r) {
+  const lowerKey = key.toLowerCase();
+
+  // ✅ Only store as CustomerField if it's in allowed (active) fields
+  if (allowedCustomerFieldKeys.has(lowerKey)) {
+    customerFields[key] = safeTrim(r[key]);
+    delete r[key]; // remove from main object
+  }
+
+  // ❌ Otherwise, just delete unknown keys from payload
+  else if (!prismaCustomerKeys.has(lowerKey)) {
+    delete r[key]; // skip/store nothing
+  }
+}
+
+
+
       return {
         ...r,
+        CustomerFields: customerFields,
         customerName: safeTrim(r.customerName || r.CustomerName || "") || "",
         ContactNumber: firstPhone,
         Email: email,
@@ -464,35 +520,35 @@ export const importCustomers = async (req, res, next) => {
       return created.id;
     };
 
-   const getOrCreateReferenceId = async (ref) => {
-  ref = safeTrim(ref);
-  if (!ref) return null;
+    const getOrCreateReferenceId = async (ref) => {
+      ref = safeTrim(ref);
+      if (!ref) return null;
 
-  // cache by name
-  if (referenceIdCache.has(ref)) return ref;
+      // cache by name
+      if (referenceIdCache.has(ref)) return ref;
 
-  // Name is NOT unique → use findFirst
-  const found = await prisma.reference.findFirst({
-    where: { Name: ref },
-    select: { id: true },
-  });
+      // Name is NOT unique → use findFirst
+      const found = await prisma.reference.findFirst({
+        where: { Name: ref },
+        select: { id: true },
+      });
 
-  if (found) {
-    referenceIdCache.set(ref, true);
-    return ref;
-  }
+      if (found) {
+        referenceIdCache.set(ref, true);
+        return ref;
+      }
 
-  // create new reference
-  await prisma.reference.create({
-    data: {
-      Name: ref,
-      Status: "Active", // ✅ REQUIRED
-    },
-  });
+      // create new reference
+      await prisma.reference.create({
+        data: {
+          Name: ref,
+          Status: "Active", // ✅ REQUIRED
+        },
+      });
 
-  referenceIdCache.set(ref, true);
-  return ref;
-};
+      referenceIdCache.set(ref, true);
+      return ref;
+    };
 
 
 
@@ -553,6 +609,7 @@ export const importCustomers = async (req, res, next) => {
         const created = await prisma.customer.create({
           data: {
             ...row,
+            CustomerFields: row.CustomerFields,
             CreatedById: admin.id,
             City: row.City || admin.city || "",
             isImported: true,

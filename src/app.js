@@ -35,6 +35,7 @@ import messageRoutes from "./routes/route.messages.js";
 import requestUserRoutes from "./routes/route.requestUser.js";
 import sublocationRoutes from "./routes/route.sublocation.js";
 import priceRoutes from "./routes/route.price.js";
+import customerFieldsRoutes from "./routes/route.customerFields.js";
 const app = express();
 app.use(cookieParser());
 
@@ -55,6 +56,7 @@ app.use(express.json());
 
 app.use("/api/user",requestUserRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/mas/customerFields", customerFieldsRoutes);
 app.use("/api/mas/cam", campaignRoutes);
 app.use("/api/mas/type", typeRoutes);
 app.use("/api/mas/sub", subtypeRoutes);
@@ -86,5 +88,6 @@ app.use("/api/cus/followup", followupRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/con/follow/add", confollowaddRoutes);
 app.use("/api/v1/messages", messageRoutes);
+
 
 export default app;
