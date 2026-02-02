@@ -36,6 +36,7 @@ import requestUserRoutes from "./routes/route.requestUser.js";
 import sublocationRoutes from "./routes/route.sublocation.js";
 import priceRoutes from "./routes/route.price.js";
 import customerFieldsRoutes from "./routes/route.customerFields.js";
+import customerFieldLabelRoutes from "./routes/route.customerFieldLabel.js";
 const app = express();
 app.use(cookieParser());
 
@@ -46,7 +47,7 @@ app.use(
       "https://domain.ibigdata.in",
       
     ],
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   })
 );
@@ -88,6 +89,7 @@ app.use("/api/cus/followup", followupRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/con/follow/add", confollowaddRoutes);
 app.use("/api/v1/messages", messageRoutes);
+app.use("/api/customerfieldlabels",customerFieldLabelRoutes)
 
 
 export default app;

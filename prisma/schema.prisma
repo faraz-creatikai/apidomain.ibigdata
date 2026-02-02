@@ -460,3 +460,9 @@ model RequestUser {
   password String
   phone    String?
 }
+
+model CustomerFieldLabel {
+  id           Int    @id @default(autoincrement())
+  fieldKey     String @unique // customerName, contactNumber
+  displayLabel String // Student Name, Mobile Number
+}
