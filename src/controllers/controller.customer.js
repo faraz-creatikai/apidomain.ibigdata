@@ -247,6 +247,7 @@ export const getCustomer = async (req, res, next) => {
       SearchIn,
       ReferenceId,
       Price,
+      isFavourite,
       StartDate,
       EndDate,
       Limit,
@@ -290,6 +291,7 @@ export const getCustomer = async (req, res, next) => {
     if (ContactNumber) AND.push({ ContactNumber: { contains: ContactNumber.trim() } });
     if (ReferenceId) AND.push({ ReferenceId: { contains: ReferenceId.trim() } });
     if (Price) AND.push({ Price: { contains: Price.trim() } });
+    if (isFavourite) AND.push({ isFavourite: { contains: isFavourite } });
 
     // --------------------------------------------
     // KEYWORD SEARCH
