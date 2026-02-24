@@ -399,44 +399,61 @@ export const getCustomer = async (req, res, next) => {
     }
 
 
-    // --------------------------------------------
-    // POST-FETCH FILTER BY CustomerDate (dd-mm-yyyy) ONLY IF BOTH START AND END PROVIDED
-    // --------------------------------------------
-    if (StartDate && EndDate) {
-      const [sdDay, sdMonth, sdYear] = StartDate.split("-").map(Number);
-      const [edDay, edMonth, edYear] = EndDate.split("-").map(Number);
+// --------------------------------------------
+// POST-FETCH FILTER + SORT BY CustomerDate
+// ONLY IF BOTH START AND END PROVIDED
+// --------------------------------------------
+if (StartDate && EndDate) {
 
-      const start = new Date(sdYear, sdMonth - 1, sdDay, 0, 0, 0, 0);
-      const end = new Date(edYear, edMonth - 1, edDay, 23, 59, 59, 999);
-      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-        customers = customers.filter((c) => {
-          if (c.CustomerDate && c.CustomerDate.trim() !== "") {
-            const parts = c.CustomerDate.split("-");
-            let custDate;
+  const parseDMY = (str) => {
+    if (!str) return null;
 
-            if (parts.length === 3) {
-              // Check which format it is
-              if (parts[0].length === 4) {
-                // yyyy-mm-dd
-                const [yyyy, mm, dd] = parts.map(Number);
-                custDate = new Date(yyyy, mm - 1, dd);
-              } else {
-                // dd-mm-yyyy
-                const [dd, mm, yyyy] = parts.map(Number);
-                custDate = new Date(yyyy, mm - 1, dd);
-              }
-            } else {
-              custDate = new Date(c.CustomerDate);
-            }
+    const parts = str.split("-");
+    if (parts.length !== 3) return null;
 
-            return !isNaN(custDate.getTime()) && custDate >= start && custDate <= end;
-          }
+    let day, month, year;
 
-          // If CustomerDate is empty, do NOT include
-          return false;
-        });
-      }
+    // yyyy-mm-dd
+    if (parts[0].length === 4) {
+      [year, month, day] = parts.map(Number);
+    } 
+    // dd-mm-yyyy
+    else {
+      [day, month, year] = parts.map(Number);
     }
+
+    const d = new Date(year, month - 1, day);
+    d.setHours(0, 0, 0, 0); // 🔥 normalize time
+
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const start = parseDMY(StartDate);
+  const end = parseDMY(EndDate);
+
+  if (start && end) {
+
+    end.setHours(23, 59, 59, 999); // include full end day
+
+    // 1️⃣ FILTER FIRST
+    customers = customers.filter((c) => {
+      const d = parseDMY(c.CustomerDate);
+      return d && d >= start && d <= end;
+    });
+
+    // 2️⃣ DEDUPLICATE BEFORE SORT (important)
+    if (!ContactNumber) {
+      customers = deduplicateByContact(customers);
+    }
+
+    // 3️⃣ STRICT ASC SORT (24 → 25 → 26 → 27 → 28)
+    customers.sort((a, b) => {
+      const aTime = parseDMY(a.CustomerDate)?.getTime() || 0;
+      const bTime = parseDMY(b.CustomerDate)?.getTime() || 0;
+      return aTime - bTime;
+    });
+  }
+}
 
 
 
@@ -1095,7 +1112,7 @@ export const updateCustomer = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: "Customer updated successfully",
-      data: await transformCustomer(updated),
+      data: await transformGetCustomer(updated),
     });
   } catch (error) {
     next(new ApiError(500, error.message));
