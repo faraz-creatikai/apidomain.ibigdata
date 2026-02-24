@@ -266,9 +266,14 @@ export const getCustomer = async (req, res, next) => {
     // --------------------------------------------
     // ROLE-BASED FILTERS
     // --------------------------------------------
-    if (admin.role === "city_admin") {
-      AND.push({ City: { contains: admin.city } });
-    } else if (admin.role === "user") {
+   if (admin.role === "city_admin") {
+  AND.push({
+    OR: [
+      { AssignToId: admin.id },
+      { CreatedById: admin.id }
+    ]
+  });
+} else if (admin.role === "user") {
       AND.push({ AssignToId: admin.id || admin._id });
     }
 
