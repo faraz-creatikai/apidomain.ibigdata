@@ -1165,56 +1165,87 @@ export const deleteCustomer = async (req, res, next) => {
 };
 
 // ASSIGN CUSTOMERS
+// ASSIGN CUSTOMERS (ID or Campaign Based)
 export const assignCustomer = async (req, res, next) => {
   try {
-    const { customerIds = [], assignToId } = req.body;
+    const { customerIds = [], assignToId, campaign } = req.body;
     const admin = req.admin;
 
-    if (!Array.isArray(customerIds) || customerIds.length === 0 || !assignToId)
+    if (!assignToId)
       return next(
-        new ApiError(400, "customerIds (array) and assignToId are required")
+        new ApiError(400, "assignToId is required")
       );
 
+    // Check assign target admin
     const assignToAdmin = await prisma.admin.findUnique({
       where: { id: assignToId },
     });
-    if (!assignToAdmin) return next(new ApiError(404, "Admin/User not found"));
+
+    if (!assignToAdmin)
+      return next(new ApiError(404, "Admin/User not found"));
+
+    // Build dynamic filter
+    let whereCondition = {};
+
+    if (customerIds.length > 0) {
+      whereCondition.id = { in: customerIds };
+    }
+
+    if (campaign) {
+      whereCondition.Campaign = campaign;
+    }
+
+    // If neither provided
+    if (customerIds.length === 0 && !campaign)
+      return next(
+        new ApiError(400, "Provide customerIds or campaign")
+      );
 
     const customers = await prisma.customer.findMany({
-      where: { id: { in: customerIds } },
+      where: whereCondition,
     });
+
     if (customers.length === 0)
       return next(new ApiError(404, "No valid customers found"));
 
+    // ---------------- ROLE VALIDATION ----------------
     if (admin.role === "city_admin") {
-      const invalid = customers.filter((c) => c.City !== admin.city);
+      const invalid = customers.filter(
+        (c) => c.City !== admin.city
+      );
+
       if (invalid.length > 0)
         return next(
           new ApiError(403, "You can only assign customers in your city")
         );
+
       if (assignToAdmin.city !== admin.city)
         return next(
           new ApiError(403, "You can only assign to users in your city")
         );
-    } else if (admin.role === "user") {
+    } 
+    else if (admin.role === "user") {
       return next(
         new ApiError(403, "Users are not allowed to assign customers")
       );
     }
 
+    // ---------------- UPDATE ----------------
     await prisma.customer.updateMany({
-      where: { id: { in: customerIds } },
+      where: whereCondition,
       data: { AssignToId: assignToId },
     });
 
     const updated = await prisma.customer.findMany({
-      where: { id: { in: customerIds } },
+      where: whereCondition,
     });
+
     res.status(200).json({
       success: true,
       message: `Assigned ${updated.length} customers successfully`,
       data: await Promise.all(updated.map(transformGetCustomer)),
     });
+
   } catch (error) {
     next(new ApiError(500, error.message));
   }
