@@ -1177,11 +1177,8 @@ export const assignCustomer = async (req, res, next) => {
     const admin = req.admin;
 
     if (!assignToId)
-      return next(
-        new ApiError(400, "assignToId is required")
-      );
+      return next(new ApiError(400, "assignToId is required"));
 
-    // Check assign target admin
     const assignToAdmin = await prisma.admin.findUnique({
       where: { id: assignToId },
     });
@@ -1189,7 +1186,23 @@ export const assignCustomer = async (req, res, next) => {
     if (!assignToAdmin)
       return next(new ApiError(404, "Admin/User not found"));
 
-    // Build dynamic filter
+    // ------------------------------------------------
+    // 🔥 RESTRICTION: USER can only get selected IDs
+    // ------------------------------------------------
+    if (assignToAdmin.role === "user") {
+      if (!customerIds.length || campaign) {
+        return next(
+          new ApiError(
+            403,
+            "You can only assign selected customers to a user"
+          )
+        );
+      }
+    }
+
+    // ------------------------------------------------
+    // BUILD FILTER
+    // ------------------------------------------------
     let whereCondition = {};
 
     if (customerIds.length > 0) {
@@ -1200,7 +1213,6 @@ export const assignCustomer = async (req, res, next) => {
       whereCondition.Campaign = campaign;
     }
 
-    // If neither provided
     if (customerIds.length === 0 && !campaign)
       return next(
         new ApiError(400, "Provide customerIds or campaign")
@@ -1213,7 +1225,9 @@ export const assignCustomer = async (req, res, next) => {
     if (customers.length === 0)
       return next(new ApiError(404, "No valid customers found"));
 
-    // ---------------- ROLE VALIDATION ----------------
+    // ------------------------------------------------
+    // ROLE VALIDATION (Logged-in Admin Rules)
+    // ------------------------------------------------
     if (admin.role === "city_admin") {
       const invalid = customers.filter(
         (c) => c.City !== admin.city
@@ -1235,7 +1249,9 @@ export const assignCustomer = async (req, res, next) => {
       );
     }
 
-    // ---------------- UPDATE ----------------
+    // ------------------------------------------------
+    // UPDATE
+    // ------------------------------------------------
     await prisma.customer.updateMany({
       where: whereCondition,
       data: { AssignToId: assignToId },
