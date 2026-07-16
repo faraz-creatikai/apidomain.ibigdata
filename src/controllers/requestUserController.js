@@ -2,6 +2,9 @@ import bcrypt from "bcryptjs";
 import { genrateToken } from "../config/adminjwt.js";
 import prisma from "../config/prismaClient.js";
 import ApiError from "../utils/ApiError.js";
+import cloudinary from "../config/cloudinary.js";
+import fs from "fs";
+import { notifyNewUserRequest } from "../jobs/notification/notificationEvents.js";
 
 
 
@@ -10,10 +13,10 @@ export const acceptRequest = async (req, res) => {
         const { id } = req.params;
         const currentAdmin = req.admin;
 
-/*         if (currentAdmin.role !== "administrator") {
-            throw new ApiError(403, "Only administrators can accept requests");
-        }
- */
+        /*         if (currentAdmin.role !== "administrator") {
+                    throw new ApiError(403, "Only administrators can accept requests");
+                }
+         */
         if (!id) {
             throw new ApiError(400, "User ID is required");
         }
@@ -42,13 +45,17 @@ export const acceptRequest = async (req, res) => {
                 name: requestUser.name,
                 email: requestUser.email,
                 password: requestUser.password, // password is already hashed in requestUser
-                role: "user",
+                role: requestUser.role || "client_admin", // default role if not provided
                 city: requestUser.city || null,
                 phone: requestUser.phone || null,
+                company: requestUser.company,
+                experience: requestUser.experience,
+                specialization: requestUser.specialization,
+                AdminImage: requestUser.image
             },
         });
 
-        // Delete the user from requestUser table
+        // Delete the user from  requestUser table
         await prisma.requestUser.delete({
             where: { id },
         });
@@ -110,7 +117,9 @@ export const denyRequest = async (req, res) => {
 
 export const getAllRequestUser = async (req, res) => {
     try {
-        const requestUsers = await prisma.requestUser.findMany();
+        const requestUsers = await prisma.requestUser.findMany({
+             orderBy: { createdAt: "desc" },
+        });
 
         res.status(200).json({
             success: true,
@@ -126,16 +135,18 @@ export const getAllRequestUser = async (req, res) => {
 };
 
 
-
-
-
-
 export const newUserSignup = async (req, res) => {
-    const { name, email, password,phone } = req.body;
+    const { name, email, password, phone, role, experience, specialization, city,company } = req.body;
 
     try {
         if (!email || !password || !name || !phone) {
             throw new ApiError(400, "Missing required details");
+        }
+
+        if (role) {
+            if (role !== "user" && role !== "client_admin") {
+                throw new ApiError(403, "Unauthorized User Role");
+            }
         }
 
         // Check if email already exists inside RequestUser
@@ -147,6 +158,24 @@ export const newUserSignup = async (req, res) => {
             throw new ApiError(409, "Account already exists");
         }
 
+        let AdminImage = [];
+
+        if (req.files?.AdminImage) {
+            const uploads = req.files.AdminImage.map((file) =>
+                cloudinary.uploader
+                    .upload(file.path, {
+                        folder: "admin/admin_images",
+                        transformation: [{ width: 1000, crop: "limit" }],
+                    })
+                    .then((upload) => {
+                        fs.unlinkSync(file.path);
+                        return upload.secure_url;
+                    })
+            );
+            AdminImage = await Promise.all(uploads);
+        }
+
+
         // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -156,11 +185,23 @@ export const newUserSignup = async (req, res) => {
                 name,
                 email,
                 password: hashedPassword,
-                phone
+                phone,
+                role: role ? role : "user",
+                experience,
+                specialization,
+                city,
+                image: JSON.stringify(AdminImage),
+                company
             },
         });
 
         const token = genrateToken(newUser.id);
+
+            await notifyNewUserRequest({
+              newUser: newUser,
+            });
+            console.log("Notification job triggered for new user request:", newUser.name);
+        
 
         res.status(201).json({
             success: true,

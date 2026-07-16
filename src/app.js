@@ -38,16 +38,22 @@ import priceRoutes from "./routes/route.price.js";
 import customerFieldsRoutes from "./routes/route.customerFields.js";
 import customerFieldLabelRoutes from "./routes/route.customerFieldLabel.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
+import aiAgentRoutes from "./routes/route.aiagent.js";
+import leadtypeRoutes from "./routes/route.leadtype.js";
+import airteliqCallRoutes from "./routes/route.airteliq.js";
+import socialContentRoutes from "./routes/route.socialContent.js";
+import propertyRoutes from "./routes/route.property.js";
+import socialAuthRoutes from "./routes/route.socialAuth.js";
+import notificationRoutes from "./routes/route.notification.js";
+import { ALLOWED_ORIGINS } from "./config/cors-origins.js";
+import salesScriptRoutes from "./routes/route.salesscript.js";
+import tabblyRoutes from "./routes/route.tabbly.js";
 const app = express();
 app.use(cookieParser());
 
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "https://domain.ibigdata.in",
-      
-    ],
+    origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   })
@@ -72,6 +78,7 @@ app.use("/api/mas/amen", amenityRoutes);
 app.use("/api/mas/func", functionalAreaRoutes);
 app.use("/api/mas/ind", industryRoutes);
 app.use("/api/mas/ref", referenceRoutes);
+app.use("/api/mas/leadtype", leadtypeRoutes);
 app.use("/api/mas/price", priceRoutes);
 app.use("/api/mas/exp", expenseRoutes);
 app.use("/api/mas/inc", incomeRoutes);
@@ -91,6 +98,15 @@ app.use("/api/contact", contactRoutes);
 app.use("/api/con/follow/add", confollowaddRoutes);
 app.use("/api/v1/messages", messageRoutes);
 app.use("/api/customerfieldlabels",customerFieldLabelRoutes)
+app.use("/api/aiagent",aiAgentRoutes)
+app.use("/api/airteliq", airteliqCallRoutes);
+app.use("/api/social-content", socialContentRoutes);
+app.use("/api/social-auth",socialAuthRoutes);
+app.use("/api/property", propertyRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/salesscript",salesScriptRoutes);
+app.use("/api/tabbly",tabblyRoutes);
+
 app.use(errorHandler);
 
 
