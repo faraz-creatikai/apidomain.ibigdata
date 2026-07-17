@@ -34,6 +34,7 @@ import {
   getCustomerLocationStats,
   getRadarChartStats,
   getCustomerCount,
+  getCustomFieldValues,
 } from "../controllers/controller.customer.js";
 
 import upload from "../config/multer.js";
@@ -73,9 +74,11 @@ customerRoutes.get("/today", getTodayCustomers);
 customerRoutes.get("/getcalllogs",getCallLogs);
 customerRoutes.get("/get-call-report",getCallReport);
 customerRoutes.get("/data-mining", dataMining);
+customerRoutes.get("/get-customer-fields-values",getCustomFieldValues);
 customerRoutes.get("/", getCustomer);
 customerRoutes.get("/count",getCustomerCount);
-customerRoutes.get("/all",getAllCustomers)
+customerRoutes.get("/all",getAllCustomers);
+
 
 //shortlist recommended customers
 customerRoutes.post('/shortlist', protectRoute, addPropertiesToShortlist);
@@ -154,3 +157,7 @@ customerRoutes.get("/:id", getCustomerById);
 
 
 export default customerRoutes;
+
+
+
+

@@ -1070,7 +1070,7 @@ export const getCustomer = async (req, res, next) => {
       Campaign, CustomerType, CustomerSubType, LeadTemperature, StatusType,
       City, Location, SubLocation, LeadType, Keyword, SearchIn, ReferenceId,
       MinPrice, MaxPrice, Price, isFavourite, StartDate, EndDate, Limit,
-      Skip = 0, sort, User, ContactNumber
+      Skip = 0, sort, User, ContactNumber,CustomerFields,
     } = req.query;
 
     let AND = [];
@@ -1138,6 +1138,40 @@ export const getCustomer = async (req, res, next) => {
     if (ContactNumber) AND.push({ ContactNumber: { contains: ContactNumber.trim() } });
     if (ReferenceId) AND.push({ ReferenceId: { contains: ReferenceId.trim() } });
     if (Price) AND.push({ Price: { contains: Price.trim() } });
+
+// --------------------------------------------
+    // 2B. CUSTOM FIELD FILTERS (dynamic JSON)
+    // --------------------------------------------
+    if (CustomerFields) {
+      try {
+        // Express automatically decodes the URL into a string.
+        // This will successfully turn '{"State":"Gujarat"}' into a real object.
+        const customFieldFilters = JSON.parse(CustomerFields);
+        
+        // Add this line to see the proof in your server console!
+        console.log("✅ Parsed CustomerFields from Frontend:", customFieldFilters);
+
+        Object.entries(customFieldFilters).forEach(([key, value]) => {
+          const trimmed = String(value ?? "").trim();
+          if (!trimmed) return;
+
+          AND.push({
+            CustomerFields: {
+              // 1. Use standard SQL JSON dot-notation for the path
+              path: `$.${key}`, 
+              
+              // 2. Use 'equals' instead of 'string_contains'
+              // string_contains inside JSON columns often fails in MySQL because 
+              // the DB stores JSON string values wrapped in internal quotes. 
+              // Prisma's 'equals' handles this natively.
+              equals: trimmed, 
+            },
+          });
+        });
+      } catch (err) {
+        console.error("❌ JSON Parse Error:", err);
+      }
+    }
 
     const cleanNumber = (val) => Number(String(val || "").replace(/[^0-9]/g, ""));
 
@@ -1271,6 +1305,61 @@ export const getCustomer = async (req, res, next) => {
     
     return res.status(200).json(transformed);
 
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+};
+
+// GET /customer/custom-field-values
+// Scans CustomerFields across records the admin can see, returns { key: [distinct values] }
+export const getCustomFieldValues = async (req, res, next) => {
+  try {
+    const admin = req.admin;
+    let AND = [];
+
+    // same role scoping as getCustomer — otherwise a client/city-scoped admin
+    // could see custom field values from data they shouldn't have access to
+    if (admin.role !== "administrator" && admin.clientId) {
+      AND.push({
+        OR: [{ ClientId: admin.clientId }, { CreatedById: admin.id || admin._id }],
+      });
+    }
+    if (admin.role === "user") {
+      const adminId = admin.id || admin._id;
+      AND.push({
+        OR: [{ AssignTo: { some: { id: adminId } } }, { CreatedById: adminId }],
+      });
+    } else if (admin.role === "city_admin") {
+      AND.push({ City: { equals: admin.city } });
+    }
+
+    const where = AND.length ? { AND } : {};
+
+    const rows = await prisma.customer.findMany({
+      where,
+      select: { CustomerFields: true },
+    });
+
+    const valueMap = {};
+    rows.forEach((row) => {
+      const cf = row.CustomerFields;
+      if (!cf || typeof cf !== "object") return;
+      Object.entries(cf).forEach(([key, value]) => {
+        const trimmed = String(value ?? "").trim();
+        if (!trimmed) return;
+        if (!valueMap[key]) valueMap[key] = new Set();
+        valueMap[key].add(trimmed);
+      });
+    });
+
+    const result = Object.fromEntries(
+      Object.entries(valueMap).map(([key, set]) => [
+        key,
+        Array.from(set).sort((a, b) => a.localeCompare(b)).slice(0, 200), // cap payload size
+      ])
+    );
+
+    return res.status(200).json(result);
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -2810,7 +2899,6 @@ export const startCall = async (req, res, next) => {
   }
 };
 
-
 export const getCallLogs = async (req, res) => {
   try {
     const response = await fetch(
@@ -2847,9 +2935,6 @@ export const getCallLogs = async (req, res) => {
     });
   }
 };
-
-
-
 
 export const getCallReport = async (req, res, next) => {
   try {
@@ -2906,7 +2991,6 @@ export const deleteCallLogById = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
 
 export const syncCallLogs = async (req, res) => {
   try {
@@ -3000,7 +3084,6 @@ export const syncCallLogs = async (req, res) => {
     });
   }
 };
-
 
 //deal closing controllers 
 
