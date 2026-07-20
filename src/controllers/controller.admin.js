@@ -441,6 +441,7 @@ export const updateAdminDetails = async (req, res) => {
     delete updates["removedAdminImages"];
 
     if (req.body.name) updates.name = req.body.name;
+     if (req.body.city) updates.city = req.body.city;
     if (req.body.company) updates.company = req.body.company;
     if (req.body.AddressLine1) updates.AddressLine1 = req.body.AddressLine1;
     if (req.body.AddressLine2) updates.AddressLine2 = req.body.AddressLine2;
