@@ -441,8 +441,8 @@ export const updateAdminDetails = async (req, res) => {
     delete updates["removedAdminImages"];
 
     if (req.body.name) updates.name = req.body.name;
-     if (req.body.city) updates.city = req.body.city;
     if (req.body.company) updates.company = req.body.company;
+    if (req.body.city) updates.city = req.body.city;
     if (req.body.AddressLine1) updates.AddressLine1 = req.body.AddressLine1;
     if (req.body.AddressLine2) updates.AddressLine2 = req.body.AddressLine2;
 
@@ -791,7 +791,7 @@ export const getAdminById = async (req, res) => {
     if (currentAdmin.role === "city_admin") {
       const isSelf = targetAdmin.id === currentAdmin.id;
       const isSubordinateInCity = targetAdmin.role === "user" && targetAdmin.city === currentAdmin.city;
-      
+
       if (!isSelf && !isSubordinateInCity) {
         return res.status(403).json({ success: false, message: "Access denied" });
       }
@@ -958,7 +958,7 @@ export const deleteApiKey = async (req, res, next) => {
     const existingKey = await prisma.cRMApiKey.findFirst({
       where: {
         id: keyId,
-        adminId: adminId, 
+        adminId: adminId,
       },
     });
 
@@ -968,8 +968,8 @@ export const deleteApiKey = async (req, res, next) => {
 
     // 2. Delete the key
     await prisma.apiKey.delete({
-      where: { 
-        id: keyId 
+      where: {
+        id: keyId
       },
     });
 
@@ -989,16 +989,16 @@ export const getApiKeys = async (req, res, next) => {
 
     // 1. Fetch all keys belonging to this specific admin
     const apiKeys = await prisma.cRMApiKey.findMany({
-      where: { 
-        adminId: adminId 
+      where: {
+        adminId: adminId
       },
       select: {
         id: true,
         name: true,
-        key: true, 
+        key: true,
         createdAt: true,
       },
-      orderBy: { 
+      orderBy: {
         createdAt: "desc" // Newest keys first
       },
     });

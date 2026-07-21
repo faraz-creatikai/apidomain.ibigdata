@@ -4,33 +4,42 @@ import { sendBaileysWhatsApp, sendBaileysWhatsAppDirect, sendWhatsApp } from "..
 import ApiError from "../utils/ApiError.js";
 import { makeCall } from "../config/exotel.js";
 import fs from "fs";
+import { EmailCampaignAgent } from "../ai/agent.js";
 
 const prisma = new PrismaClient();
 
 // --------------------------------------------
 // 🔀 PLACEHOLDER REPLACEMENT (Same Logic)
 // --------------------------------------------
-const replacePlaceholders = (templateText, customer) => {
-  if (!templateText) return templateText;
-
+// utils/mergeTemplate.js
+export function replacePlaceholders(str, customer) {
+  if (!str) return str;
   const map = {
-    name: customer.customerName || customer.name || "",
-    email: customer.Email || "",
-    contact: customer.ContactNumber || customer.Contact || "",
-    city: customer.City || customer.city || "",
-    propertyType: customer.CustomerSubType || customer.propertyType || "",
+    Name: customer.customerName || "",
+    City: customer.City || "",
+    Campaign: customer.Campaign || "",
+    ContactNumber: customer.ContactNumber || "",
+    Email: customer.Email || "",
   };
+  let out = str;
+  for (const [key, val] of Object.entries(map)) {
+    out = out.replaceAll(`{{${key}}}`, val);
+  }
+  // dynamic CustomerFields, e.g. {{CustomerFields.ImprovementArea}}
+  if (customer.CustomerFields) {
+    for (const [k, v] of Object.entries(customer.CustomerFields)) {
+      out = out.replaceAll(`{{CustomerFields.${k}}}`, v ?? "");
+    }
+  }
+  return out;
+}
 
-  Object.keys(customer).forEach((k) => {
-    const val = customer[k];
-    if (val === undefined || val === null) return;
-    map[k.toLowerCase()] = typeof val === "string" ? val : String(val);
-  });
-
-  return templateText.replace(/{{\s*([^}]+)\s*}}/g, (_, key) => {
-    return map[key.trim().toLowerCase()] ?? "";
-  });
-};
+export function mergeAiContentIntoTemplate(templateHtml, aiBody, customer) {
+  const filled = replacePlaceholders(templateHtml, customer);
+  return filled.includes("{{AI_CONTENT}}")
+    ? filled.replace("{{AI_CONTENT}}", aiBody)
+    : filled.replace("</body>", `<p>${aiBody}</p></body>`); // fallback if marker missing
+}
 
 // --------------------------------------------
 // 📌 Fetch Customers
@@ -293,7 +302,7 @@ export const sendBaileysWhatsAppByTemplate = async (req, res, next) => {
 const buildPropertyMessage = (property) => {
   const name = property.customerName || "Featured Property";
   const campaign = property.Campaign ? `[${property.Campaign.toUpperCase()}] ` : "";
-  
+
   // Combine Type and SubType (e.g., "Commercial - Office Space")
   const propertyType = [property.CustomerType, property.CustomerSubType]
     .filter(Boolean)
@@ -303,17 +312,17 @@ const buildPropertyMessage = (property) => {
   const locationText = [property.SubLocation, property.Location, property.City]
     .filter(Boolean)
     .join(", ");
-  
+
   let msg = `🏠 *${campaign}${name}*\n`;
   msg += `────────────────────\n\n`;
-  
+
   if (property.Description) {
     // 1. Remove 10-digit phone numbers (and optional +91 or 0 prefixes)
     let cleanDesc = property.Description.replace(/(?:\+?91[\s-]?)?\b\d{10}\b/g, '');
-    
+
     // 2. Clean up leftover hanging words like "Contact:- , " or "Call :"
     cleanDesc = cleanDesc.replace(/(?:Contact|Call|Mob|Mobile|Ph|Phone)[\s:,\-]+/gi, ' ');
-    
+
     // 3. Clean up any weird double commas or extra spaces left behind
     cleanDesc = cleanDesc.replace(/,\s*,/g, ',').replace(/\s{2,}/g, ' ').trim();
 
@@ -326,34 +335,34 @@ const buildPropertyMessage = (property) => {
   if (propertyType) {
     msg += `🏢 *Type:* ${propertyType}\n`;
   }
-  
+
   if (locationText) {
     msg += `📍 *Location:* ${locationText}\n`;
   }
-  
+
   if (property.Area) {
     msg += `📐 *Area:* ${property.Area}\n`;
   }
-  
+
   if (property.Adderess) {
     msg += `🗺️ *Address:* ${property.Adderess}\n`;
   }
-  
+
   if (property.Price) {
     msg += `💰 *Price:* ${property.Price}\n`;
   }
-  
+
   if (property.Facillities) {
     msg += `✨ *Facilities:* ${property.Facillities}\n`;
   }
-  
+
   if (property.URL) {
     msg += `🔗 *Link:* ${property.URL}\n`;
   }
-  
+
   msg += `\n────────────────────\n`;
   msg += `📱 *Interested? Contact us for more details!*`;
-  
+
   return msg;
 };
 
@@ -470,7 +479,7 @@ export const sendBaileysWhatsAppProperties = async (req, res, next) => {
 export const sendDirectWhatsAppMessage = async (req, res, next) => {
   try {
     const { message = "", mediaType = "text", sendToAll = "false" } = req.body;
-    
+
     const customerIds = req.body.customerIds ? JSON.parse(req.body.customerIds) : [];
     const location = req.body.location ? JSON.parse(req.body.location) : null;
     const poll = req.body.poll ? JSON.parse(req.body.poll) : null;
@@ -482,7 +491,7 @@ export const sendDirectWhatsAppMessage = async (req, res, next) => {
     if (req.files && req.files["whatsappFile"] && req.files["whatsappFile"].length > 0) {
       file = req.files["whatsappFile"][0];
       // Read the physical file from the 'uploads/' folder into a raw Buffer for Baileys
-      fileBuffer = fs.readFileSync(file.path); 
+      fileBuffer = fs.readFileSync(file.path);
     }
 
     const customers = await fetchTargetCustomers({ customerIds, sendToAll: sendToAll === "true" });
@@ -509,14 +518,14 @@ export const sendDirectWhatsAppMessage = async (req, res, next) => {
           poll,
           fileName: file ? file.originalname : undefined,
           mimetype: file ? file.mimetype : undefined,
-          humanize: i === 0 
+          humanize: i === 0
         };
 
         // 👇 2. PASS THE CONVERTED BUFFER
         const result = await sendBaileysWhatsAppDirect(
-          formattedPhone, 
-          message, 
-          fileBuffer, 
+          formattedPhone,
+          message,
+          fileBuffer,
           extra
         );
 
@@ -712,4 +721,142 @@ export const sendWhatsAppMessage = async (req, res, next) => {
   }
 };
 
+
+
+function buildCustomerContext(baseCustomer) {
+  return {
+    customer: {
+      customerName: baseCustomer.customerName,
+      description: baseCustomer.Description,
+      price: baseCustomer.PriceNumber,
+      City: baseCustomer.City,
+      Location: baseCustomer.Location,
+      SubLocation: baseCustomer.SubLocation,
+      Campaign: baseCustomer.Campaign,
+      CustomerType: baseCustomer.CustomerType,
+      CustomerSubType: baseCustomer.CustomerSubType,
+      LeadType: baseCustomer.LeadType,
+      Email: baseCustomer.Email,
+      CustomerFields: baseCustomer.CustomerFields || {},
+    },
+  };
+}
+
+//email template ai campaign send
+
+// Drop-in replacement for sendEmailDirectToCustomers.
+// Only change: destructure an optional `templateHtml` from the payload and
+// forward it to EmailCampaignAgent so AI drafts can use a chosen template as
+// their visual base. Manual sends don't need this — the frontend already
+// puts the template's HTML straight into `Body` — but it's accepted here
+// too in case you want to log/attribute it later.
+
+export const sendEmailDirectToCustomers = async (req, res, next) => {
+  try {
+    const {
+      customerIds = [],
+      sendToAll = false,
+      userPrompt,
+      Subject,
+      Body,
+      mode = "english",
+      templateHtml, // still comes from frontend for merging — just never sent to AI
+    } = req.body;
+
+    if (!userPrompt && !(Subject && Body)) {
+      return next(new ApiError(400, "Either userPrompt or Subject & Body is required"));
+    }
+
+    const customers = await fetchTargetCustomers({ customerIds, sendToAll });
+    if (!customers.length) return next(new ApiError(404, "No customers found"));
+
+    const results = [];
+
+    for (const c of customers) {
+      try {
+        if (!c.Email) {
+          results.push({ id: c.id, name: c.customerName, status: "skipped_no_email" });
+          continue;
+        }
+
+        let subject = "";
+        let body = "";
+        let metadata = {};
+        let workSummary = "";
+
+        if (userPrompt) {
+          const customerContext = buildCustomerContext(c);
+          const EmailResponse = await EmailCampaignAgent(
+            userPrompt,
+            customerContext,
+            mode,
+            !!templateHtml // just a boolean flag now
+          );
+
+          subject = EmailResponse?.email?.subject || "";
+          const aiBody = EmailResponse?.email?.body || "";
+          metadata = EmailResponse?.metadata || {};
+          workSummary = EmailResponse?.workSummary || "";
+
+          if (!subject || !aiBody) {
+            results.push({ id: c.id, name: c.customerName, status: "failed", error: "AI failed to generate valid content" });
+            continue;
+          }
+
+          body = templateHtml ? mergeAiContentIntoTemplate(templateHtml, aiBody, c) : aiBody;
+        } else {
+          subject = replacePlaceholders(Subject, c);
+          body = replacePlaceholders(Body, c);
+        }
+
+        const info = await sendEmail(c.Email, subject, body);
+        results.push({ id: c.id, email: c.Email, status: "sent", metadata, workSummary, info: info.messageId || info.response });
+      } catch (err) {
+        results.push({ id: c.id, name: c.customerName, status: "failed", error: err.message });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      sent: results.filter(r => r.status === "sent").length,
+      results,
+    });
+  } catch (err) {
+    next(new ApiError(500, err.message));
+  }
+};
+
+export async function triggerAutoEmail({ customerId, userPrompt, mode = "english" }) {
+  if (!customerId) throw new Error("customerId is required");
+  if (!userPrompt) throw new Error("userPrompt is required");
+
+  const baseCustomer = await prisma.customer.findUnique({ where: { id: customerId } });
+  if (!baseCustomer) throw new Error("Customer not found");
+
+  if (!baseCustomer.Email) {
+    return { status: "skipped_no_email", customerId };
+  }
+
+  const customerContext = buildCustomerContext(baseCustomer);
+  const EmailResponse = await EmailCampaignAgent(userPrompt, customerContext, mode);
+
+  const subject = EmailResponse?.email?.subject || "";
+  const body = EmailResponse?.email?.body || "";
+  const metadata = EmailResponse?.metadata || {};
+
+  if (!subject || !body) {
+    throw new Error("AI failed to generate valid subject/body");
+  }
+
+  const info = await sendEmail(baseCustomer.Email, subject, body);
+
+  return {
+    status: "sent",
+    customerId,
+    email: baseCustomer.Email,
+    subject,
+    metadata,
+    info: info.messageId || info.response,
+  };
+}
 

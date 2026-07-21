@@ -5,11 +5,14 @@ import {
   sendBaileysWhatsAppProperties,
   sendDirectWhatsAppMessage,
   sendEmailByTemplate,
+  sendEmailDirectToCustomers,
   sendWhatsAppByTemplate,
   sendWhatsAppMessage,
 } from "../controllers/controller.messages.js";
 import { getWhatsAppConnectionState, getWhatsAppSocket, initWhatsApp, logoutWhatsApp, startPairingConnection, stopWhatsAppIdle } from "../config/baileys.js";
-import { templateUpload } from "../config/multer.js";
+import upload, { templateUpload } from "../config/multer.js";
+import cloudinary from "../config/cloudinary.js";
+import fs from "fs"
 
 const messageRoutes = express.Router();
 
@@ -17,6 +20,25 @@ messageRoutes.post("/email", sendEmailByTemplate);
 messageRoutes.post("/whatsapp", sendBaileysWhatsAppByTemplate);
 messageRoutes.post("/whatsapp/send-properties",sendBaileysWhatsAppProperties);
 messageRoutes.post("/whatsapp/direct-message",templateUpload.fields([{ name: "whatsappFile", maxCount: 5 }]),sendDirectWhatsAppMessage);
+
+messageRoutes.post("/uploads/file", upload.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  try {
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: "mail-templates",
+    });
+
+    // clean up the local temp file now that it's on Cloudinary
+    fs.unlink(req.file.path, () => {});
+
+    // GrapesJS's default asset manager expects this exact shape
+    res.json({ data: [result.secure_url] });
+  } catch (err) {
+    console.error("Cloudinary upload failed:", err);
+    res.status(500).json({ error: "Upload failed" });
+  }
+});
 
 messageRoutes.get('/whatsapp-connection-status', (req, res) => {
   // Just return the instant state. Socket.io handles waking it up now!
@@ -45,6 +67,8 @@ messageRoutes.post('/whatsapp-connection-pairing-code', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+messageRoutes.post("/send-email-via-ai",sendEmailDirectToCustomers);
 
 
 

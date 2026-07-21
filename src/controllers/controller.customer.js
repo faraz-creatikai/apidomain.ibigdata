@@ -416,7 +416,7 @@ export const getTodayCustomers = async (req, res, next) => {
     const customers = await prisma.customer.findMany({
       where: { AND },
       orderBy: { createdAt: "desc" },
-      distinct: ["ContactNumber"], // 🚀 Enforcing your unique leads rule
+      //distinct: ["ContactNumber"], // 🚀 Enforcing your unique leads rule
 
     });
 

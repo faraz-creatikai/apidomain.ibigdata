@@ -464,3 +464,4 @@ export async function getAggregatedProducts(productName, options = {}) {
 
   return { products: sorted, error: null };
 }
+
