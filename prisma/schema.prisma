@@ -303,7 +303,6 @@ model Template {
   whatsappPoll        Json?   @default("null") // { name, options: [], selectableCount }
   variables           Json?   @default("[]") // e.g. ["customerName","amount"] — useful for email too, as a "available merge tags" hint in your UI
   category            String? @default("") // free-text grouping, e.g. "marketing" / "reminder" — just metadata
-  
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -425,6 +424,7 @@ model Customer {
   LeadType        String? @default("")
   customerName    String
   ContactNumber   String
+  CountryCode     String? @default("91")
   City            String? @default("")
   Location        String? @default("")
   SubLocation     String? @default("")

@@ -10,6 +10,7 @@ import timezone from "dayjs/plugin/timezone.js";
 import { CallingAgent, DataMiningAgent, QualifyAgent } from "../ai/agent.js";
 import { callingAgentPrompt } from "../ai/prompts/callingAgentPrompt.js";
 import { notifyCustomerCreated } from "../jobs/notification/notificationEvents.js";
+import { cleanNationalNumber, DEFAULT_COUNTRY_CODE } from "../utils/phone.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -479,7 +480,7 @@ const radarChartCache = {
 };
 
 // Set cache duration (e.g., 5 minutes)
-const CACHE_TTL_MS = 0.1 * 60 * 1000; 
+const CACHE_TTL_MS = 0.1 * 60 * 1000;
 
 
 
@@ -490,8 +491,8 @@ export const getDashboardStatsCount = async (req, res, next) => {
 
     // 1. Serve from cache if valid
     if (dashboardCache.data !== null && dashboardCache.expiry > now) {
-      return res.status(200).json({ 
-        success: true, 
+      return res.status(200).json({
+        success: true,
         data: dashboardCache.data,
         source: "cache"
       });
@@ -507,18 +508,18 @@ export const getDashboardStatsCount = async (req, res, next) => {
       // 1. Leads: Unique customers by ContactNumber
       prisma.customer.findMany({
         distinct: ["ContactNumber"],
-        select: { id: true }, 
+        select: { id: true },
       }),
-      
+
       // 2. Contacts: Native DB counting
       prisma.contact.count(),
-      
+
       // 3. Converted Leads: Unique customers in the Followup table
       prisma.followup.findMany({
         distinct: ["customerId"],
         select: { id: true }
       }),
-      
+
       // 4. Income: Fetching only the Income field to sum it up
       // Note: If 'Income' is saved as an Int/Float in your schema, 
       // you could use prisma.income.aggregate({ _sum: { Income: true } }) here instead.
@@ -529,7 +530,7 @@ export const getDashboardStatsCount = async (req, res, next) => {
 
     // Safely calculate the total revenue on the server
     const totalRevenue = incomeRecords.reduce(
-      (sum, item) => sum + (Number(item.Name) || 0), 
+      (sum, item) => sum + (Number(item.Name) || 0),
       0
     );
 
@@ -545,8 +546,8 @@ export const getDashboardStatsCount = async (req, res, next) => {
     dashboardCache.expiry = now + CACHE_TTL_MS;
 
     // 4. Return fresh response
-    return res.status(200).json({ 
-      success: true, 
+    return res.status(200).json({
+      success: true,
       data: stats,
       source: "database"
     });
@@ -572,12 +573,12 @@ export const getLeadSourcesStats = async (req, res, next) => {
 
     // 🚀 FIX: Removed the "where" clause so we fetch ALL unique leads
     const uniqueCustomers = await prisma.customer.findMany({
-     // distinct: ["ContactNumber"],
+      // distinct: ["ContactNumber"],
       select: { ReferenceId: true },
     });
 
     const counts = {};
-    
+
     uniqueCustomers.forEach((item) => {
       // Only count it if it actually exists
       if (item.ReferenceId) {
@@ -626,8 +627,8 @@ export const getLeadTemperatureStats = async (req, res, next) => {
         LeadTemperature: { not: null, not: "" }, // Ignore empty fields
       },
       //distinct: ["ContactNumber"], // 🚀 Filters duplicates natively
-      select: { 
-        LeadTemperature: true 
+      select: {
+        LeadTemperature: true
       },
     });
 
@@ -638,7 +639,7 @@ export const getLeadTemperatureStats = async (req, res, next) => {
     uniqueCustomers.forEach((item) => {
       // Clean string (e.g., " Hot ", "HOT" -> "hot")
       const tempString = item.LeadTemperature.toLowerCase().trim();
-      
+
       // Only count if it's a valid key ('hot', 'warm', or 'cold')
       if (tempString in counts) {
         counts[tempString] += 1;
@@ -788,9 +789,9 @@ export const getFollowupChartStats = async (req, res, next) => {
 
     // 2. Fetch ONLY the necessary date strings
     const allFollowups = await prisma.followup.findMany({
-      select: { 
-        StartDate: true, 
-        FollowupNextDate: true 
+      select: {
+        StartDate: true,
+        FollowupNextDate: true
       },
     });
 
@@ -823,7 +824,7 @@ export const getFollowupChartStats = async (req, res, next) => {
 
       // Prefer FollowupNextDate over StartDate
       const checkDate = followupDate || startDate;
-      
+
       // Skip if date parsing failed
       if (!checkDate || isNaN(checkDate.getTime())) return;
 
@@ -878,8 +879,8 @@ export const getCustomerLocationStats = async (req, res, next) => {
         Location: { not: null, not: "" }, // Ignore empty locations
       },
       distinct: ["ContactNumber"], // Filters duplicates natively
-      select: { 
-        Location: true 
+      select: {
+        Location: true
       },
     });
 
@@ -961,8 +962,8 @@ export const getRadarChartStats = async (req, res, next) => {
     const result = Object.values(userMap)
       .map((user) => ({
         ...user,
-        percentage: totalCustomers > 0 
-          ? Math.round((user.customers / totalCustomers) * 100) 
+        percentage: totalCustomers > 0
+          ? Math.round((user.customers / totalCustomers) * 100)
           : 0,
       }))
       .sort((a, b) => b.customers - a.customers);
@@ -1048,7 +1049,7 @@ export const getCustomerCount = async (req, res, next) => {
       // 🚀 OPTIMIZATION 2: The Index-Only Scan Trick
       // By selecting the exact field used in 'distinct', the DB resolves this 
       // instantly from memory without reading the actual row data.
-      select: { ContactNumber: true }, 
+      select: { ContactNumber: true },
     });
 
     return res.status(200).json({
@@ -1070,7 +1071,7 @@ export const getCustomer = async (req, res, next) => {
       Campaign, CustomerType, CustomerSubType, LeadTemperature, StatusType,
       City, Location, SubLocation, LeadType, Keyword, SearchIn, ReferenceId,
       MinPrice, MaxPrice, Price, isFavourite, StartDate, EndDate, Limit,
-      Skip = 0, sort, User, ContactNumber,CustomerFields,
+      Skip = 0, sort, User, ContactNumber, CountryCode, CustomerFields,
     } = req.query;
 
     let AND = [];
@@ -1136,10 +1137,11 @@ export const getCustomer = async (req, res, next) => {
     if (Location) AND.push({ Location: { contains: Location.trim() } });
     if (SubLocation) AND.push({ SubLocation: { contains: SubLocation.trim() } });
     if (ContactNumber) AND.push({ ContactNumber: { contains: ContactNumber.trim() } });
+    if (CountryCode) AND.push({ CountryCode: { equals: CountryCode.trim() } }); 
     if (ReferenceId) AND.push({ ReferenceId: { contains: ReferenceId.trim() } });
     if (Price) AND.push({ Price: { contains: Price.trim() } });
 
-// --------------------------------------------
+    // --------------------------------------------
     // 2B. CUSTOM FIELD FILTERS (dynamic JSON)
     // --------------------------------------------
     if (CustomerFields) {
@@ -1147,7 +1149,7 @@ export const getCustomer = async (req, res, next) => {
         // Express automatically decodes the URL into a string.
         // This will successfully turn '{"State":"Gujarat"}' into a real object.
         const customFieldFilters = JSON.parse(CustomerFields);
-        
+
         // Add this line to see the proof in your server console!
         console.log("✅ Parsed CustomerFields from Frontend:", customFieldFilters);
 
@@ -1158,13 +1160,13 @@ export const getCustomer = async (req, res, next) => {
           AND.push({
             CustomerFields: {
               // 1. Use standard SQL JSON dot-notation for the path
-              path: `$.${key}`, 
-              
+              path: `$.${key}`,
+
               // 2. Use 'equals' instead of 'string_contains'
               // string_contains inside JSON columns often fails in MySQL because 
               // the DB stores JSON string values wrapped in internal quotes. 
               // Prisma's 'equals' handles this natively.
-              equals: trimmed, 
+              equals: trimmed,
             },
           });
         });
@@ -1193,7 +1195,7 @@ export const getCustomer = async (req, res, next) => {
     // --------------------------------------------
     // 3. FIX: ADVANCED FILTERS BROUGHT TO DB LEVEL
     // --------------------------------------------
-    
+
     // Fix A: Move User filtering directly into Prisma query where clause
     if (User) {
       const userLower = User.toLowerCase();
@@ -1260,10 +1262,10 @@ export const getCustomer = async (req, res, next) => {
       ? [{ createdAt: "asc" }]
       : [{ updatedAt: "desc" }, { createdAt: "desc" }];
 
-   // --------------------------------------------
+    // --------------------------------------------
     // 🚀 OPTIMIZED FETCH (Concurrent Execution)
     // --------------------------------------------
-    
+
     // We fire BOTH the count and the page fetch at the exact same time.
     // We let Prisma natively handle skip/take instead of manual JS slicing.
     const [totalRecords, customers] = await Promise.all([
@@ -1271,10 +1273,10 @@ export const getCustomer = async (req, res, next) => {
       ContactNumber
         ? prisma.customer.count({ where })
         : prisma.customer.findMany({
-            where,
-           // distinct: ["ContactNumber"],
-            select: { id: true },
-          }).then(res => res.length),
+          where,
+          // distinct: ["ContactNumber"],
+          select: { id: true },
+        }).then(res => res.length),
 
       // 2. Fetch the actual page data natively
       prisma.customer.findMany({
@@ -1283,7 +1285,7 @@ export const getCustomer = async (req, res, next) => {
         skip: offset,
         ...(Limit !== undefined && { take: REQUIRED }),
         // Apply distinct safely
-       // ...(!ContactNumber && { distinct: ["ContactNumber"] }),
+        // ...(!ContactNumber && { distinct: ["ContactNumber"] }),
         include: {
           // 🚀 ONLY pull the fields the UI actually renders
           AssignTo: {
@@ -1298,11 +1300,11 @@ export const getCustomer = async (req, res, next) => {
     // FINAL TRANSFORM & RESPONSE
     // --------------------------------------------
     const transformed = await Promise.all(customers.map(transformGetCustomer));
-    
+
     // Optional but highly recommended: Send the totalRecords back in headers or a wrapper 
     // so the frontend doesn't have to guess the pagination.
     res.setHeader('X-Total-Count', totalRecords);
-    
+
     return res.status(200).json(transformed);
 
   } catch (error) {
@@ -1549,6 +1551,8 @@ export const createCustomer = async (req, res, next) => {
         CustomerImage: JSON.stringify(CustomerImage),
         SitePlan: JSON.stringify(SitePlan),
         CustomerFields: customerFieldsData,
+        ContactNumber: cleanNationalNumber(body.ContactNumber), // strips any stray '+'/spaces if present
+        CountryCode: body.CountryCode || DEFAULT_COUNTRY_CODE,
         AssignTo:
           admin.role === "user"
             ? {
@@ -1594,6 +1598,14 @@ export const updateCustomer = async (req, res, next) => {
     const { id } = req.params;
 
     let updateData = { ...req.body };
+    if (updateData.ContactNumber !== undefined) {
+      updateData.ContactNumber = cleanNationalNumber(updateData.ContactNumber);
+    }
+
+    if (updateData.CountryCode !== undefined) {
+      const cc = String(updateData.CountryCode).trim();
+      updateData.CountryCode = cc || DEFAULT_COUNTRY_CODE;
+    }
 
     // ✅ BOOLEAN PARSER ADDED
     const toBoolean = (val) => {
