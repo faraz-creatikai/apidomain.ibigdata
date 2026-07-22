@@ -1272,7 +1272,7 @@ export const getCustomer = async (req, res, next) => {
         ? prisma.customer.count({ where })
         : prisma.customer.findMany({
             where,
-            distinct: ["ContactNumber"],
+           // distinct: ["ContactNumber"],
             select: { id: true },
           }).then(res => res.length),
 
@@ -1283,7 +1283,7 @@ export const getCustomer = async (req, res, next) => {
         skip: offset,
         ...(Limit !== undefined && { take: REQUIRED }),
         // Apply distinct safely
-        ...(!ContactNumber && { distinct: ["ContactNumber"] }),
+       // ...(!ContactNumber && { distinct: ["ContactNumber"] }),
         include: {
           // 🚀 ONLY pull the fields the UI actually renders
           AssignTo: {
