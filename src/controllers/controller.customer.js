@@ -1000,7 +1000,7 @@ export const getCustomerCount = async (req, res, next) => {
     // --------------------------------------------
     const uniqueCustomers = await prisma.customer.findMany({
       where,
-      distinct: ["ContactNumber"],
+    //  distinct: ["ContactNumber"],
       // 🚀 OPTIMIZATION 2: The Index-Only Scan Trick
       // By selecting the exact field used in 'distinct', the DB resolves this 
       // instantly from memory without reading the actual row data.
