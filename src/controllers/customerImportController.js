@@ -64,29 +64,41 @@ const DEFAULT_COUNTRY_CODE = "91"; // assume domestic when no code is present
 const MIN_LOCAL_LEN = 6;
 const MAX_LOCAL_LEN = 11;
 
-// Returns { countryCode, number } from a raw digit string
 // Add a parameter to know if we detected a '+' sign
+// Returns { countryCode, number } from a raw digit string
 const splitCountryCode = (digits, hasExplicitCountryCode = false) => {
   if (!digits) return { countryCode: DEFAULT_COUNTRY_CODE, number: "" };
 
-  // Skip the local check ONLY IF the user explicitly provided a '+' sign
-  if (!hasExplicitCountryCode && digits.length <= MAX_LOCAL_LEN && !isAmbiguousLength(digits)) {
-    return { countryCode: DEFAULT_COUNTRY_CODE, number: digits };
-  }
-
-  // Try matching a known country code + valid length for the remainder
+  // 1. MATCH KNOWN COUNTRY CODES FIRST
+  // This correctly identifies numbers like "18475970044" (US) or "919876543210" (India)
+  // even if the user forgot to include the '+' symbol.
   for (const { code, lengths } of COUNTRY_CODES) {
     if (digits.startsWith(code)) {
       const rest = digits.slice(code.length);
+      
+      let cleanedRest = rest;
+      if (cleanedRest.startsWith("0")) {
+        cleanedRest = cleanedRest.replace(/^0+/, "");
+      }
+
       if (lengths.includes(rest.length)) {
         return { countryCode: code, number: rest };
+      } else if (lengths.includes(cleanedRest.length)) {
+        return { countryCode: code, number: cleanedRest };
       }
     }
   }
 
-  // Unknown/unlisted code fallback
+  // 2. DOMESTIC FALLBACK
+  // If no country code matches perfectly, and there is no '+' sign, assume it's domestic (India).
+  if (!hasExplicitCountryCode && digits.length >= MIN_LOCAL_LEN && digits.length <= MAX_LOCAL_LEN) {
+    return { countryCode: DEFAULT_COUNTRY_CODE, number: digits };
+  }
+
+  // 3. UNKNOWN LONG NUMBER FALLBACK
+  // If it's a very long number with an unrecognized country code, grab the last 10 digits.
   if (digits.length > MAX_LOCAL_LEN) {
-    const guessLen = 10;
+    const guessLen = 10; 
     const number = digits.slice(-guessLen);
     const countryCode = digits.slice(0, digits.length - guessLen) || DEFAULT_COUNTRY_CODE;
     return { countryCode, number };
@@ -105,12 +117,28 @@ const cleanNumber = (num) => {
   if (!num) return { countryCode: DEFAULT_COUNTRY_CODE, number: "" };
   
   const strNum = String(num).trim();
-  // Check for the '+' sign before we strip it out
+  
+  // Check for the '+' sign or '00' international prefix before we strip characters
   const hasPlus = strNum.startsWith("+") || strNum.startsWith("00"); 
   
-  const digits = strNum.replace(/[^0-9]/g, "");
+  // Remove ALL non-digit characters (strips spaces, -, _, (), alphabets, and symbols)
+  let digits = strNum.replace(/\D/g, "");
   
-  // Pass the boolean flag so the splitter knows not to treat it as a local number
+  // If they used '00' for international dialling, strip it so the country code matches perfectly
+  if (strNum.startsWith("00")) {
+    digits = digits.substring(2);
+  }
+  
+  // If it's a domestic number starting with 0 (e.g. 08787349821), strip the zero
+  // ONLY if stripping it results in a valid local length number.
+  if (!hasPlus && digits.startsWith("0")) {
+    const withoutZero = digits.replace(/^0+/, "");
+    if (withoutZero.length >= MIN_LOCAL_LEN && withoutZero.length <= MAX_LOCAL_LEN) {
+      digits = withoutZero;
+    }
+  }
+  
+  // Pass the boolean flag so the splitter knows to look for a country code
   return splitCountryCode(digits, hasPlus);
 };
 
@@ -118,13 +146,16 @@ const cleanNumber = (num) => {
 const extractNumbers = (raw) => {
   if (!raw) return { countryCode: DEFAULT_COUNTRY_CODE, number: "" };
 
+  // SPLIT FIX: Removed the hyphen (\-) from the split regex so formatted numbers stay intact.
+  // We only split on comma, semicolon, slash, pipe, or newline.
   const candidates = String(raw)
-    .split(/[,/;|\-]/)
+    .split(/[,;/|\n]/)
     .map(cleanNumber)
     .filter((n) => n.number.length >= MIN_LOCAL_LEN && n.number.length <= MAX_LOCAL_LEN);
 
   return candidates[0] || { countryCode: DEFAULT_COUNTRY_CODE, number: "" };
 };
+
 
 // Normalize row keys
 const normalizeKeys = (row, manual = {}) => {

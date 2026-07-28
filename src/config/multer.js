@@ -48,5 +48,20 @@ const templateUpload = multer({
   },
 });
 
+// 👇 NEW: separate instance for the real-estate video generator's uploaded
+// voiceover recording (Step 5, "upload my recorded voiceover" option). Same
+// disk storage/filename logic, just a different allowed-extension set for
+// audio files.
+const voiceUpload = multer({
+  storage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /mp3|wav|m4a|aac|ogg/;
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.test(ext)) cb(null, true);
+    else cb(new Error("Unsupported file type. Allowed audio: mp3, wav, m4a, aac, ogg."));
+  },
+});
+
 export default upload;
-export { templateUpload };
+export { templateUpload, voiceUpload };
