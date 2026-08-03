@@ -42,8 +42,8 @@ export const createAdminValidator = [
   body("city")
     .optional()
     .trim()
-    .isLength({ min: 2 })
-    .withMessage("City name must be at least 2 characters long"),
+/*     .isLength({ min: 2 })
+    .withMessage("City name must be at least 2 characters long") */,
   body("phone")
     .optional()
     .trim()
