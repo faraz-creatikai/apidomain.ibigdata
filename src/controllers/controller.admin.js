@@ -174,8 +174,8 @@ export const createAdmin = async (req, res) => {
     if (existingAdmin)
       throw new ApiError(409, "Account already exists");
 
-    if ((role === "city_admin" || role === "user") && !city)
-      throw new ApiError(400, "City is required for this role");
+  /*   if ((role === "city_admin" || role === "user") && !city)
+      throw new ApiError(400, "City is required for this role"); */
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
