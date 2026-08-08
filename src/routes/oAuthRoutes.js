@@ -3,13 +3,16 @@ import express from "express";
 const oauthRoutes = express.Router();
 const BASE_URL = "https://apidomain.ibigdata.in";
 
-// 1. OAuth 2.0 Protected Resource Metadata (Mandatory for MCP)
-oauthRoutes.get("/.well-known/oauth-protected-resource", (req, res) => {
+const handleResourceMetadata = (req, res) => {
   res.json({
     resource: BASE_URL,
     authorization_servers: [BASE_URL]
   });
-});
+};
+
+// 1. Catch ALL variations of the Protected Resource Metadata path Claude probes
+oauthRoutes.get("/.well-known/oauth-protected-resource", handleResourceMetadata);
+oauthRoutes.get("/.well-known/oauth-protected-resource/*", handleResourceMetadata);
 
 // 2. OAuth 2.0 Authorization Server Metadata (RFC 8414)
 oauthRoutes.get("/.well-known/oauth-authorization-server", (req, res) => {
