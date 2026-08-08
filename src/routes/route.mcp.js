@@ -3,10 +3,10 @@ import { establishSseConnection, handleMcpMessages } from "../controllers/mcpCon
 
 const mcpRoutes = express.Router();
 
-// GET route for Claude Web to open the SSE stream
+// Allow both GET and POST for SSE initialization to catch Claude's web probes
 mcpRoutes.get("/sse", establishSseConnection);
+mcpRoutes.post("/sse", establishSseConnection); 
 
-// FIXED: Explicitly parse JSON payload to prevent SDK crashes
 mcpRoutes.post("/messages", express.json(), handleMcpMessages);
 
 export default mcpRoutes;
