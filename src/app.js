@@ -51,34 +51,20 @@ import tabblyRoutes from "./routes/route.tabbly.js";
 import videoProjectRoutes from "./routes/route.videoProject.js";
 import path from "path";
 import mcpRoutes from "./routes/route.mcp.js";
-import oauthRoutes from "./routes/oAuthRoutes.js";
 
 const app = express();
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    // This will print every single request Claude or anyone else makes to your VPS
-    console.log(`[INCOMING REQUEST] ${req.method} ${req.originalUrl} | Status: ${res.statusCode} | Duration: ${duration}ms`);
-  });
-  next();
-});
 app.use(cookieParser());
-
 
 app.use(
   cors({
     origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
 app.use(express.json());
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 // Routes
-
-app.use("/", oauthRoutes);
 
 app.use("/api/user", requestUserRoutes);
 app.use("/api/admin", adminRoutes);

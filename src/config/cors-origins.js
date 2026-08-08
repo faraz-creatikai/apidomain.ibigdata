@@ -4,5 +4,4 @@ export const ALLOWED_ORIGINS = [
   "http://localhost:5678/",
   "https://ibigdata.in",
   "https://domain.ibigdata.in",
-  "https://claude.ai"
 ];
