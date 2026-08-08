@@ -38,7 +38,7 @@ const saveToSentFolder = async (rawEmail) => {
       pass: process.env.SMTP_PASS,
     },
     // Optional: Set to false to hide those verbose IMAP logs in your terminal
-    logger: false, 
+    logger: false,
   });
 
   try {
@@ -47,7 +47,7 @@ const saveToSentFolder = async (rawEmail) => {
     // Append the raw email to Hostinger's Sent folder
     // The ['\\Seen'] flag marks it as read so it doesn't show as unread in Sent
     await client.append("INBOX.Sent", rawEmail, ["\\Seen"]);
-    
+
     console.log("✅ Email successfully saved to INBOX.Sent");
   } catch (error) {
     console.error("❌ Failed to save email to Sent folder:", error);
@@ -133,7 +133,7 @@ export const sendSystemEmail = async (to, userName, password, role) => {
         <p>Best Regards,<br/><b>Admin Team</b></p>
       </div>
     `;
-    
+
 
     const mailOptions = {
       from: `"System Notification" <${process.env.SMTP_USER}>`,
@@ -141,7 +141,7 @@ export const sendSystemEmail = async (to, userName, password, role) => {
       subject,
       html,
     };
-    
+
 
     const info = await smtpTransporter.sendMail(mailOptions);
     console.log("✅ System email sent:", info.response);
