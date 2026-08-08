@@ -54,7 +54,17 @@ import mcpRoutes from "./routes/route.mcp.js";
 import oauthRoutes from "./routes/oAuthRoutes.js";
 
 const app = express();
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    // This will print every single request Claude or anyone else makes to your VPS
+    console.log(`[INCOMING REQUEST] ${req.method} ${req.originalUrl} | Status: ${res.statusCode} | Duration: ${duration}ms`);
+  });
+  next();
+});
 app.use(cookieParser());
+
 
 app.use(
   cors({
