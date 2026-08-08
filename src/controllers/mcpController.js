@@ -98,40 +98,21 @@ mcpServer.tool(
   }
 );
 
-// --- EXPRESS HANDLERS (The Fix) ---
-
-const activeTransports = new Map();
+// ==========================================
+// EXPRESS HANDLERS (The Web Bridge)
+// ==========================================
+let transport;
 
 export const establishSseConnection = async (req, res) => {
-  // Required headers to prevent Hostinger/Nginx from dropping the connection
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("X-Accel-Buffering", "no"); 
-
-  const transport = new SSEServerTransport("/api/mcp/messages", res);
-  activeTransports.set(transport.sessionId, transport);
-  
+  transport = new SSEServerTransport("/api/mcp/messages", res);
   await mcpServer.connect(transport);
-  console.log(`Claude connected! Session: ${transport.sessionId}`);
-
-  req.on("close", () => {
-    activeTransports.delete(transport.sessionId);
-    console.log(`Connection closed for session: ${transport.sessionId}`);
-  });
+  console.log("Claude connected to CRM backend via Web SSE");
 };
 
 export const handleMcpMessages = async (req, res) => {
-  const sessionId = req.query.sessionId;
-  const transport = activeTransports.get(sessionId);
-  
-  if (!transport) {
-    return res.status(400).json({ error: "No active SSE connection" });
-  }
-
-  try {
+  if (transport) {
     await transport.handlePostMessage(req, res);
-  } catch (error) {
-    console.error("SDK Error:", error);
-    res.status(500).json({ error: "Internal SDK Error" });
+  } else {
+    res.status(400).json({ error: "No active SSE connection" });
   }
 };
