@@ -100,33 +100,38 @@ mcpServer.tool(
 
 // --- EXPRESS HANDLERS (The Fix) ---
 
-// 1. Create a Map to store active transports by their unique session ID
 const activeTransports = new Map();
 
 export const establishSseConnection = async (req, res) => {
-  // 1. Force headers to prevent Hostinger's Nginx proxy from closing the stream
+  // Required headers to prevent Hostinger/Nginx from dropping the connection
   res.setHeader("Connection", "keep-alive");
   res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("X-Accel-Buffering", "no"); // Specifically tells Nginx not to buffer
+  res.setHeader("X-Accel-Buffering", "no"); 
 
-  // 2. Use the ABSOLUTE URL instead of a relative path
-  const messagesUrl = "https://apidomain.ibigdata.in/api/mcp/messages";
-  const transport = new SSEServerTransport(messagesUrl, res);
-  
+  const transport = new SSEServerTransport("/api/mcp/messages", res);
   activeTransports.set(transport.sessionId, transport);
   
   await mcpServer.connect(transport);
-  console.log(`Claude connected to CRM backend via Web SSE (Session: ${transport.sessionId})`);
+  console.log(`Claude connected! Session: ${transport.sessionId}`);
+
+  req.on("close", () => {
+    activeTransports.delete(transport.sessionId);
+    console.log(`Connection closed for session: ${transport.sessionId}`);
+  });
 };
 
 export const handleMcpMessages = async (req, res) => {
-  // 3. Look up the specific transport object for this POST request
   const sessionId = req.query.sessionId;
   const transport = activeTransports.get(sessionId);
   
-  if (transport) {
+  if (!transport) {
+    return res.status(400).json({ error: "No active SSE connection" });
+  }
+
+  try {
     await transport.handlePostMessage(req, res);
-  } else {
-    res.status(400).json({ error: "No active SSE connection for this session" });
+  } catch (error) {
+    console.error("SDK Error:", error);
+    res.status(500).json({ error: "Internal SDK Error" });
   }
 };
