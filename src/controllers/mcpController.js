@@ -1,11 +1,10 @@
 import prisma from "../config/prismaClient.js";
 
-
 export const createCustomerJson = async (req, res, next) => {
   try {
     const body = req.body;
 
-    // Price Conversion Logic (Exactly as you had it)
+    // Price Conversion Logic
     let PriceNumber = 0;
     if (body.Price && body.Price !== "N/A") {
       const raw = body.Price.toString().toLowerCase();
@@ -25,16 +24,15 @@ export const createCustomerJson = async (req, res, next) => {
       ? body.ContactNumber 
       : "101010101010";
       
-    // Set an API fallback Admin ID (Replace this UUID with a real ID from your Admin table)
     const AI_SYSTEM_ADMIN_ID = "YOUR-FALLBACK-ADMIN-UUID";
 
     const newCustomer = await prisma.customer.create({
       data: {
         customerName: body.customerName || "N/A",
         ContactNumber: finalContact,
-        Campaign: body.Campaign,
+        Campaign: body.Campaign || "N/A",
         
-        // Optional Fields 
+        // Optional Standard Fields 
         City: body.City || "N/A",
         Location: body.Location || "N/A",
         Adderess: body.Adderess || "N/A",
@@ -43,16 +41,13 @@ export const createCustomerJson = async (req, res, next) => {
         LeadType: body.LeadType || "N/A",
         Description: body.Description || "N/A",
         Price: body.Price || "N/A",
-        
         PriceNumber: PriceNumber,
+        
+        // 🚀 DYNAMIC JSON FIELDS ADDED HERE
+        CustomerFields: body.CustomerFields || {}, 
+
         LeadTemperature: "cold",
         isImported: true, 
-
-        // Database Relations
-/*         CreatedById: AI_SYSTEM_ADMIN_ID,
-        AssignTo: {
-          connect: [{ id: AI_SYSTEM_ADMIN_ID }] 
-        }, */
 
         updatedAt: new Date() 
       },
