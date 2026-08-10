@@ -23,8 +23,6 @@ export const createCustomerJson = async (req, res, next) => {
     const finalContact = (body.ContactNumber && body.ContactNumber.trim() !== "") 
       ? body.ContactNumber 
       : "101010101010";
-      
-    const AI_SYSTEM_ADMIN_ID = "YOUR-FALLBACK-ADMIN-UUID";
 
     const newCustomer = await prisma.customer.create({
       data: {
@@ -32,18 +30,21 @@ export const createCustomerJson = async (req, res, next) => {
         ContactNumber: finalContact,
         Campaign: body.Campaign || "N/A",
         
-        // Optional Standard Fields 
+        // Standard Optional Fields 
         City: body.City || "N/A",
         Location: body.Location || "N/A",
         Adderess: body.Adderess || "N/A",
         Email: body.Email || "N/A",
         CustomerType: body.CustomerType || "N/A",
+        CustomerSubType: body.CustomerSubType || "",
         LeadType: body.LeadType || "N/A",
         Description: body.Description || "N/A",
+        URL: body.URL || "", // 👈 Added URL mapping
+        GoogleMap: body.GoogleMap || "",
         Price: body.Price || "N/A",
         PriceNumber: PriceNumber,
         
-        // 🚀 DYNAMIC JSON FIELDS ADDED HERE
+        // 🚀 DYNAMIC JSON FIELDS
         CustomerFields: body.CustomerFields || {}, 
 
         LeadTemperature: "cold",
