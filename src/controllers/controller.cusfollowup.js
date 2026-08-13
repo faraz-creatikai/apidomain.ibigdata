@@ -202,20 +202,10 @@ export const getFollowups = async (req, res, next) => {
     const admin = req.admin;
 
     const {
-      page = 1,
-      limit,
-      keyword = "",
-      StatusType,
-      Campaign,
-      CustomerSubType,
-      PropertyType,
-      City,
-      Location,
-      User,
+      page = 1, limit, keyword = "", StatusType, Campaign, CustomerSubType, PropertyType, City, Location, User,
     } = req.query;
 
     const pageNum = Math.max(1, parseInt(page, 10));
-
     const isPaginated = limit !== undefined;
     const perPage = isPaginated ? Math.max(1, parseInt(limit, 10)) : null;
     const skip = isPaginated ? (pageNum - 1) * perPage : undefined;
@@ -226,7 +216,7 @@ export const getFollowups = async (req, res, next) => {
     const whereFollowup = {};
     if (StatusType) whereFollowup.StatusType = StatusType.trim();
     if (admin.role !== "administrator") {
-      whereFollowup.CreatedById = admin.id;
+      whereFollowup.CreatedById = admin.id || admin._id;
     }
 
     // -------------------------
@@ -235,32 +225,20 @@ export const getFollowups = async (req, res, next) => {
     const customerFilter = {};
 
     if (Campaign) customerFilter.Campaign = { contains: Campaign.trim() };
-    if (PropertyType)
-      customerFilter.CustomerType = { contains: PropertyType.trim() };
-    if (CustomerSubType)
-      customerFilter.CustomerSubType = { contains: CustomerSubType.trim() };
+    if (PropertyType) customerFilter.CustomerType = { contains: PropertyType.trim() };
+    if (CustomerSubType) customerFilter.CustomerSubType = { contains: CustomerSubType.trim() };
     if (City) customerFilter.City = { contains: City.trim() };
     if (Location) customerFilter.Location = { contains: Location.trim() };
 
     if (User) {
-      customerFilter.AssignTo = {
-        some: {
-          name: { contains: User.trim() },
-        },
-      };
+      customerFilter.AssignTo = { some: { name: { contains: User.trim() } } };
     }
     if (admin.role === "city_admin") {
       customerFilter.City = { contains: admin.city };
-    }
-
-    if (admin.role === "city_admin" && admin.clientId) {
-      customerFilter.City = { contains: admin.city };
-      customerFilter.ClientId = { contains: admin.clientId };
+      if (admin.clientId) customerFilter.ClientId = { contains: admin.clientId };
     }
     if (admin.role === "user") {
-      customerFilter.AssignTo = {
-        some: { id: admin.id },
-      };
+      customerFilter.AssignTo = { some: { id: admin.id || admin._id } };
     }
 
     if (keyword) {
@@ -274,45 +252,83 @@ export const getFollowups = async (req, res, next) => {
       ];
     }
 
+    // -------------------------
+    // MAGIC HAPPENS HERE: Group by Customer with AT LEAST 1 valid followup
+    // -------------------------
+    const followupFilter = Object.keys(whereFollowup).length > 0 ? whereFollowup : {};
+    
     const where = {
-      ...whereFollowup,
-      customer: Object.keys(customerFilter).length
-        ? customerFilter
-        : undefined,
+      ...customerFilter,
+      followups: { some: followupFilter } // Only fetches customers that have followups
     };
 
     // -------------------------
     // FETCH DATA
     // -------------------------
-    const [total, followups] = await Promise.all([
-      prisma.followup.count({ where }),
-      prisma.followup.findMany({
+    const [total, customers] = await Promise.all([
+      prisma.customer.count({ where }),
+      prisma.customer.findMany({
         where,
         include: {
-          customer: { include: { AssignTo: true } },
-          CreatedBy: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              role: true,
+          AssignTo: true,
+          followups: {
+            where: followupFilter,
+            orderBy: { createdAt: "desc" },
+            include: {
+              CreatedBy: { select: { id: true, name: true, email: true, role: true } },
             },
-          }
+          },
         },
-        ...(isPaginated && { skip, take: perPage }), // ✅ CONDITIONAL
-        orderBy: { createdAt: "desc" },
+        ...(isPaginated && { skip, take: perPage }),
+        orderBy: { updatedAt: "desc" },
       }),
     ]);
 
     // -------------------------
-    // RESPONSE
+    // MAP RESPONSE FOR TABLE
     // -------------------------
+    const mappedCustomers = customers.map((customer) => {
+      // 1. Get unique names from CreatedBy separated by comma
+      const uniqueUsers = [...new Set(
+        customer.followups.map(f => f.CreatedBy?.name).filter(Boolean)
+      )].join(", ");
+
+      const latestFollowup = customer.followups[0] || {};
+
+      return {
+        _id: latestFollowup.id || customer.id,
+        customer: {
+          ...customer,
+          _id: customer.id, // Required for your frontend's handleFollowups(item.customerid) logic
+        },
+        StartDate: latestFollowup.StartDate || "",
+        StatusType: latestFollowup.StatusType || "",
+        FollowupNextDate: latestFollowup.FollowupNextDate || "",
+        Description: latestFollowup.Description || "",
+        CreatedBy: latestFollowup.CreatedBy || null,
+        createdAt: latestFollowup.createdAt || customer.updatedAt,
+        updatedAt: latestFollowup.updatedAt || customer.updatedAt,
+
+        // Flattened fields used in the frontend table
+        Campaign: customer.Campaign || "",
+        CustomerType: customer.CustomerType || "",
+        CustomerSubType: customer.CustomerSubType || "",
+        City: customer.City || "",
+        Location: customer.Location || "",
+        ReferenceId: customer.ReferenceId || "",
+        customerName: customer.customerName || "",
+        ContactNumber: customer.ContactNumber || "",
+        // The newly required comma-separated User list
+        User: uniqueUsers || "N/A", 
+      };
+    });
+
     res.status(200).json({
       success: true,
       total,
       currentPage: isPaginated ? pageNum : 1,
       totalPages: isPaginated ? Math.ceil(total / perPage) : 1,
-      data: followups.map(transformFollowup),
+      data: mappedCustomers,
     });
   } catch (error) {
     next(new ApiError(500, error.message));
@@ -328,7 +344,7 @@ export const getFollowupByCustomer = async (req, res, next) => {
 
     const followups = await prisma.followup.findMany({
       where: { customerId },
-      include: { customer: true }, // just to get customer.id
+      include: { customer: true,CreatedBy: { select: { name: true } }, }, // just to get customer.id
       orderBy: { createdAt: "desc" },
     });
 
@@ -339,6 +355,7 @@ export const getFollowupByCustomer = async (req, res, next) => {
       StatusType: f.StatusType,
       FollowupNextDate: f.FollowupNextDate,
       Description: f.Description,
+      CreatedBy: f.CreatedBy?.name || "N/A",
       createdAt: f.createdAt,
       updatedAt: f.updatedAt,
       __v: 0, // to match MongoDB format
