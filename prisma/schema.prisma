@@ -1015,3 +1015,22 @@ model CRMApiKey {
 
   @@index([adminId])
 }
+
+model BrandSettings {
+  id              Int    @id @default(1)
+  appName         String @default("EstateAI Agent Platform")
+  shortName       String @default("EstateAI")
+  primaryColor    String   @default("#0066cc")
+  themeColor      String @default("#ffffff")
+  backgroundColor String @default("#ffffff")
+
+  // Image URLs (Store the actual images in AWS S3, Cloudinary, or your server's upload folder)
+  faviconUrl      String?
+  logoTextUrl     String? // Logo with domain name text
+  logoIconUrl     String? // Logo without text
+  splashScreenUrl String?
+  icon192Url      String? // For manifest
+  icon512Url      String? // For manifest
+
+  updatedAt DateTime @updatedAt
+}

@@ -51,6 +51,7 @@ import tabblyRoutes from "./routes/route.tabbly.js";
 import videoProjectRoutes from "./routes/route.videoProject.js";
 import path from "path";
 import mcpRoutes from "./routes/route.mcp.js";
+import brandRoutes from "./routes/brandRoutes.js";
 
 const app = express();
 app.use(cookieParser());
@@ -64,8 +65,11 @@ app.use(
 );
 app.use(express.json());
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
+
 // Routes
 
+app.use("/api/brand",brandRoutes);
 app.use("/api/user", requestUserRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/mas/customerFields", customerFieldsRoutes);
