@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import ApiError from "../utils/ApiError.js";
 import { followupAgent } from "../ai/agent.js";
 import { notifyCustomerFollowupTaken, notifyFollowupNext } from "../jobs/notification/notificationEvents.js";
+import { getCustomerAccessFilter } from "./controller.customer.js";
 
 const prisma = new PrismaClient();
 
@@ -197,6 +198,9 @@ export const createFollowup = async (req, res, next) => {
 // ---------------------------------------------------
 //  GET ALL FOLLOWUPS (FILTERS + PAGINATION)
 // ---------------------------------------------------
+// Make sure to import your helper at the top of the file
+// import { getCustomerAccessFilter } from './path-to-helper';
+
 export const getFollowups = async (req, res, next) => {
   try {
     const admin = req.admin;
@@ -211,55 +215,66 @@ export const getFollowups = async (req, res, next) => {
     const skip = isPaginated ? (pageNum - 1) * perPage : undefined;
 
     // -------------------------
-    // FOLLOWUP FILTER
+    // 1. FOLLOWUP FILTER
     // -------------------------
+    // Ensures we only fetch followups created by the logged-in user (unless they are an admin)
     const whereFollowup = {};
     if (StatusType) whereFollowup.StatusType = StatusType.trim();
+    
     if (admin.role !== "administrator") {
       whereFollowup.CreatedById = admin.id || admin._id;
     }
+    const followupFilter = Object.keys(whereFollowup).length > 0 ? whereFollowup : {};
 
     // -------------------------
-    // CUSTOMER FILTER
+    // 2. CUSTOMER FIELD FILTERS (Query Params)
     // -------------------------
-    const customerFilter = {};
-
-    if (Campaign) customerFilter.Campaign = { contains: Campaign.trim() };
-    if (PropertyType) customerFilter.CustomerType = { contains: PropertyType.trim() };
-    if (CustomerSubType) customerFilter.CustomerSubType = { contains: CustomerSubType.trim() };
-    if (City) customerFilter.City = { contains: City.trim() };
-    if (Location) customerFilter.Location = { contains: Location.trim() };
-
+    const fieldFilters = {};
+    if (Campaign) fieldFilters.Campaign = { contains: Campaign.trim() };
+    if (PropertyType) fieldFilters.CustomerType = { contains: PropertyType.trim() };
+    if (CustomerSubType) fieldFilters.CustomerSubType = { contains: CustomerSubType.trim() };
+    if (City) fieldFilters.City = { contains: City.trim() };
+    if (Location) fieldFilters.Location = { contains: Location.trim() };
     if (User) {
-      customerFilter.AssignTo = { some: { name: { contains: User.trim() } } };
-    }
-    if (admin.role === "city_admin") {
-      customerFilter.City = { contains: admin.city };
-      if (admin.clientId) customerFilter.ClientId = { contains: admin.clientId };
-    }
-    if (admin.role === "user") {
-      customerFilter.AssignTo = { some: { id: admin.id || admin._id } };
+      fieldFilters.AssignTo = { some: { name: { contains: User.trim() } } };
     }
 
+    // -------------------------
+    // 3. KEYWORD FILTER
+    // -------------------------
+    let keywordFilter = {};
     if (keyword) {
       const kw = keyword.trim();
-      customerFilter.OR = [
-        { customerName: { contains: kw } },
-        { ContactNumber: { contains: kw } },
-        { Email: { contains: kw } },
-        { City: { contains: kw } },
-        { Location: { contains: kw } },
-      ];
+      keywordFilter = {
+        OR: [
+          { customerName: { contains: kw } },
+          { ContactNumber: { contains: kw } },
+          { Email: { contains: kw } },
+          { City: { contains: kw } },
+          { Location: { contains: kw } },
+        ],
+      };
     }
 
     // -------------------------
-    // MAGIC HAPPENS HERE: Group by Customer with AT LEAST 1 valid followup
+    // 4. CUSTOMER ACCESS FILTER
     // -------------------------
-    const followupFilter = Object.keys(whereFollowup).length > 0 ? whereFollowup : {};
-    
+    // Reusing the exact same logic from getCustomer 
+    // to ensure the customer entry was assigned to or created by them.
+    const accessFilter = getCustomerAccessFilter(admin);
+
+    // -------------------------
+    // MAGIC HAPPENS HERE: Safely Combine Queries
+    // -------------------------
+    // We use an `AND` array so that the `OR` from keywordFilter 
+    // doesn't overwrite the `OR` from accessFilter.
     const where = {
-      ...customerFilter,
-      followups: { some: followupFilter } // Only fetches customers that have followups
+      AND: [
+        accessFilter,
+        Object.keys(fieldFilters).length > 0 ? fieldFilters : undefined,
+        Object.keys(keywordFilter).length > 0 ? keywordFilter : undefined,
+      ].filter(Boolean), // Removes undefined objects
+      followups: { some: followupFilter } // Only fetches customers that have valid followups
     };
 
     // -------------------------
@@ -288,7 +303,6 @@ export const getFollowups = async (req, res, next) => {
     // MAP RESPONSE FOR TABLE
     // -------------------------
     const mappedCustomers = customers.map((customer) => {
-      // 1. Get unique names from CreatedBy separated by comma
       const uniqueUsers = [...new Set(
         customer.followups.map(f => f.CreatedBy?.name).filter(Boolean)
       )].join(", ");
@@ -299,7 +313,7 @@ export const getFollowups = async (req, res, next) => {
         _id: latestFollowup.id || customer.id,
         customer: {
           ...customer,
-          _id: customer.id, // Required for your frontend's handleFollowups(item.customerid) logic
+          _id: customer.id, 
         },
         StartDate: latestFollowup.StartDate || "",
         StatusType: latestFollowup.StatusType || "",
@@ -309,7 +323,6 @@ export const getFollowups = async (req, res, next) => {
         createdAt: latestFollowup.createdAt || customer.updatedAt,
         updatedAt: latestFollowup.updatedAt || customer.updatedAt,
 
-        // Flattened fields used in the frontend table
         Campaign: customer.Campaign || "",
         CustomerType: customer.CustomerType || "",
         CustomerSubType: customer.CustomerSubType || "",
@@ -318,7 +331,6 @@ export const getFollowups = async (req, res, next) => {
         ReferenceId: customer.ReferenceId || "",
         customerName: customer.customerName || "",
         ContactNumber: customer.ContactNumber || "",
-        // The newly required comma-separated User list
         User: uniqueUsers || "N/A", 
       };
     });
