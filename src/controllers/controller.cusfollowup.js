@@ -353,9 +353,18 @@ export const getFollowups = async (req, res, next) => {
 export const getFollowupByCustomer = async (req, res, next) => {
   try {
     const { customerId } = req.params;
+     const admin = req.admin; // 1. Extract the admin/user
+
+    // 2. Build the where clause dynamically
+    const whereClause = { customerId };
+
+    // 3. Add the restriction for non-admins
+    if (admin.role !== "administrator") {
+      whereClause.CreatedById = admin.id || admin._id;
+    }
 
     const followups = await prisma.followup.findMany({
-      where: { customerId },
+       where: whereClause,
       include: { customer: true,CreatedBy: { select: { name: true } }, }, // just to get customer.id
       orderBy: { createdAt: "desc" },
     });
