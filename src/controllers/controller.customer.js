@@ -1609,11 +1609,11 @@ export const updateCustomer = async (req, res, next) => {
       return next(new ApiError(403, "You can only update your own customers"));
     }
 
-    if (admin.role === "city_admin" && existing.City !== admin.city) {
+/*     if (admin.role === "city_admin" && existing.City !== admin.city) {
       return next(
         new ApiError(403, "You can only update customers in your city")
       );
-    }
+    } */
 
     // LOAD EXISTING IMAGES — FIXED
     let CustomerImage = safeParse(existing.CustomerImage) || [];
