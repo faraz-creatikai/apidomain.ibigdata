@@ -1616,7 +1616,7 @@ export const updateCustomer = async (req, res, next) => {
     } */
 
     // LOAD EXISTING IMAGES — FIXED
-    let CustomerImage = safeParse(existing.CustomerImage) || [];
+    let CustomerImage = safeParse(existing.CustomerImage) || []; m
     let SitePlan = safeParse(existing.SitePlan) || [];
 
     if (typeof existing.CustomerImage === "string") {
