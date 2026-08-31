@@ -26,6 +26,8 @@ model Admin {
   specialization String?
   AdminImage     Json?   @default("[]")
 
+  isSuperAdmin Boolean @default(false)
+
   // Self Relation (creator)
   createdBy    String?
   createdByRef Admin?  @relation("CreatedByRelation", fields: [createdBy], references: [id])
@@ -45,6 +47,10 @@ model Admin {
   recievedNotification Notification[] @relation("NotificationReceiver")
   sendNotification     Notification[] @relation("NotificationSender")
 
+  activityLogs   ActivityLog[] @relation("AdminActivityLogs")
+  targetedInLogs ActivityLog[] @relation("AdminActivityTargets")
+  sessions       UserSession[] @relation("AdminSessions")
+
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   scheduledPosts ScheduledPost[]
@@ -57,6 +63,7 @@ enum Role {
   client_admin
   city_admin
   user
+  agent
 }
 
 enum AdminStatus {
@@ -1020,7 +1027,7 @@ model BrandSettings {
   id              Int    @id @default(1)
   appName         String @default("EstateAI Agent Platform")
   shortName       String @default("EstateAI")
-  primaryColor    String   @default("#0066cc")
+  primaryColor    String @default("#0066cc")
   themeColor      String @default("#ffffff")
   backgroundColor String @default("#ffffff")
 
@@ -1033,4 +1040,88 @@ model BrandSettings {
   icon512Url      String? // For manifest
 
   updatedAt DateTime @updatedAt
+}
+
+enum ActivityAction {
+  create
+  update
+  delete
+  assign
+  unassign
+  login
+  logout
+  import
+}
+
+enum ActivityEntity {
+  customer
+  followup
+  property
+  contact
+  admin
+}
+
+model ActivityLog {
+  id String @id @default(uuid())
+
+  // WHO did it
+  adminId  String
+  admin    Admin   @relation("AdminActivityLogs", fields: [adminId], references: [id], onDelete: Cascade)
+  role     Role? // snapshot of role at the time
+  city     String?
+  clientId String?
+
+  // WHAT happened
+  action ActivityAction
+  entity ActivityEntity
+
+  // ON WHICH RECORD (kept as plain strings on purpose — NO foreign key,
+  // so the log survives after the customer/followup is deleted)
+  entityId   String?
+  entityName String? // customerName / followup status etc. for display
+  customerId String? // quick reference for customer-linked activities
+  followupId String?
+
+  // For assign / unassign : to whom
+  targetAdminId  String?
+  targetAdminRef Admin?  @relation("AdminActivityTargets", fields: [targetAdminId], references: [id], onDelete: SetNull)
+
+  // Which online-session this activity belongs to (for the timeline)
+  sessionId String?
+  session   UserSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  meta      Json?    @default("{}") // changed fields, counts, ip, anything extra
+  createdAt DateTime @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([entity, action, createdAt])
+  @@index([clientId, createdAt])
+  @@index([customerId])
+  @@index([sessionId])
+  @@index([createdAt])
+}
+
+model UserSession {
+  id String @id @default(uuid())
+
+  adminId String
+  admin   Admin  @relation("AdminSessions", fields: [adminId], references: [id], onDelete: Cascade)
+
+  clientId String?
+  role     Role?
+
+  loginAt     DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  logoutAt    DateTime?
+  durationSec Int?
+  isOnline    Boolean   @default(true)
+
+  ip        String?
+  userAgent String? @db.Text
+
+  activities ActivityLog[]
+
+  @@index([adminId, loginAt])
+  @@index([isOnline])
+  @@index([clientId, loginAt])
 }

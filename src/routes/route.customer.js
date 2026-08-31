@@ -155,8 +155,8 @@ customerRoutes.post("/close-deal/:id", protectRoute, closeDeal);
 customerRoutes.post("/reopen-deal/:id", protectRoute, reopenDeal);
 
 //archieve routes
-customerRoutes.patch("/archive/:id", protectRoute, archiveCustomer);
-customerRoutes.patch("/unarchive/:id", protectRoute, unarchiveCustomer);
+customerRoutes.patch("/archive", protectRoute, archiveCustomer);
+customerRoutes.patch("/unarchive", protectRoute, unarchiveCustomer);
 customerRoutes.get("/archived", protectRoute, getArchivedCustomers);
 
 customerRoutes.get("/:id", getCustomerById);

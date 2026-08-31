@@ -11,6 +11,7 @@ import { CallingAgent, DataMiningAgent, QualifyAgent } from "../ai/agent.js";
 import { callingAgentPrompt } from "../ai/prompts/callingAgentPrompt.js";
 import { notifyCustomerCreated } from "../jobs/notification/notificationEvents.js";
 import { cleanNationalNumber, DEFAULT_COUNTRY_CODE } from "../utils/phone.js";
+import { diffFields, logActivity } from "../utils/activityLogger.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -1485,6 +1486,16 @@ export const createCustomer = async (req, res, next) => {
       },
     });
 
+     logActivity({
+      req, admin,
+      action: "create",
+      entity: "customer",
+      entityId: newCustomer.id,
+      entityName: newCustomer.customerName,
+      customerId: newCustomer.id,
+      meta: { campaign: newCustomer.Campaign, city: newCustomer.City },
+    });
+
     /* web hook trigger n8n  */
     /*     const automationRes = await fetch("http://localhost:5678/webhook/customer-created", {
           method: "POST",
@@ -1616,7 +1627,7 @@ export const updateCustomer = async (req, res, next) => {
     } */
 
     // LOAD EXISTING IMAGES — FIXED
-    let CustomerImage = safeParse(existing.CustomerImage) || []; m
+    let CustomerImage = safeParse(existing.CustomerImage) || [];
     let SitePlan = safeParse(existing.SitePlan) || [];
 
     if (typeof existing.CustomerImage === "string") {
@@ -1796,6 +1807,16 @@ export const updateCustomer = async (req, res, next) => {
       include: { AssignTo: true, _count: { select: { shortlistedProperties: true } } },
     });
 
+     logActivity({
+      req, admin,
+      action: "update",
+      entity: "customer",
+      entityId: updated.id,
+      entityName: updated.customerName,
+      customerId: updated.id,
+      meta: { changed: diffFields(existing, updated) },
+    });
+
     res.status(200).json({
       success: true,
       message: "Customer updated successfully",
@@ -1852,6 +1873,16 @@ export const deleteCustomer = async (req, res, next) => {
     await Promise.allSettled(deletions);
 
     await prisma.customer.delete({ where: { id } });
+
+       logActivity({
+      req, admin,
+      action: "delete",
+      entity: "customer",
+      entityId: id,
+      entityName: existing.customerName,
+      customerId: id,
+      meta: { contact: existing.ContactNumber, city: existing.City },
+    });
 
     res.status(200).json({ message: "Customer deleted successfully" });
   } catch (error) {
@@ -1961,6 +1992,54 @@ export const assignCustomer = async (req, res, next) => {
     );
 
     await Promise.all(updates);
+
+    //  ACTIVITY LOGGING 
+    try {
+      const logIds = customers.map((c) => c.id);
+
+      if (action === "remove") {
+        await prisma.customerAssignLog.deleteMany({
+          where: { customerId: { in: logIds }, adminId: { in: assignToId } },
+        });
+      } else {
+        const now = new Date();
+        await prisma.$transaction([
+          prisma.customerAssignLog.deleteMany({
+            where: { customerId: { in: logIds }, adminId: { in: assignToId } },
+          }),
+          prisma.customerAssignLog.createMany({
+            data: logIds.flatMap((customerId) =>
+              assignToId.map((adminId) => ({
+                customerId,
+                adminId,
+                assignedById: admin.id || admin._id,
+                assignedAt: now,
+              }))
+            ),
+            skipDuplicates: true,
+          }),
+        ]);
+      }
+
+      await Promise.all(
+        customers.map((c) =>
+          logActivity({
+            req,
+            admin,
+            action: action === "remove" ? "unassign" : "assign",
+            entity: "customer",
+            entityId: c.id,
+            entityName: c.customerName,
+            customerId: c.id,
+            targetAdminId: assignToId[0],
+            meta: { targetAdminIds: assignToId }, // Removed campaign since your new flow doesn't use it
+          })
+        )
+      );
+    } catch (e) {
+      console.error("assign log failed (non-fatal):", e.message);
+    }
+    //  END OF LOGGING
 
     const updated = await prisma.customer.findMany({
       where: { id: { in: customers.map((c) => c.id) } },
@@ -3493,41 +3572,82 @@ export const updateShortlistStatus = async (req, res, next) => {
 
 // archieve customer
 
-// ─── Archive a Customer (individual, hides only for this admin) ──────────────
+// ─── Archive Customers (single or multiple) ──────────────
 export const archiveCustomer = async (req, res, next) => {
   try {
     const admin = req.admin;
-    const { id } = req.params;
     const adminId = admin.id || admin._id;
+    
+    // Accept from body, fallback to params for backward compatibility
+    let customerIds = req.body.customerIds || (req.params.id ? [req.params.id] : []);
 
-    const customer = await prisma.customer.findUnique({ where: { id } });
-    if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
+    // Normalize string to array
+    if (typeof customerIds === "string") {
+      try {
+        customerIds = JSON.parse(customerIds);
+      } catch {
+        customerIds = [];
+      }
+    }
+    
+    if (!Array.isArray(customerIds) || customerIds.length === 0) {
+      return res.status(400).json({ success: false, message: "No customer IDs provided" });
+    }
 
-    // upsert so a double-click / re-fire doesn't throw a unique constraint error
-    const archived = await prisma.customerArchive.upsert({
-      where: { customerId_adminId: { customerId: id, adminId } },
-      update: {},
-      create: { customerId: id, adminId },
+    // Prepare data payload for bulk insert
+    const archiveData = customerIds.map((id) => ({
+      customerId: id,
+      adminId: adminId,
+    }));
+
+    // createMany with skipDuplicates prevents unique constraint errors on double-clicks
+    const archived = await prisma.customerArchive.createMany({
+      data: archiveData,
+      skipDuplicates: true, 
     });
 
-    return res.status(200).json({ success: true, data: archived });
+    return res.status(200).json({ 
+      success: true, 
+      count: archived.count,
+      message: `${archived.count} customer(s) archived` 
+    });
   } catch (error) {
     next(new ApiError(500, error.message));
   }
 };
 
-// ─── Unarchive a Customer (undo, only removes the caller's own record) ───────
+// ─── Unarchive Customers (single or multiple) ───────
 export const unarchiveCustomer = async (req, res, next) => {
   try {
     const admin = req.admin;
-    const { id } = req.params;
     const adminId = admin.id || admin._id;
+    
+    let customerIds = req.body.customerIds || (req.params.id ? [req.params.id] : []);
 
-    await prisma.customerArchive.deleteMany({
-      where: { customerId: id, adminId },
+    if (typeof customerIds === "string") {
+      try {
+        customerIds = JSON.parse(customerIds);
+      } catch {
+        customerIds = [];
+      }
+    }
+
+    if (!Array.isArray(customerIds) || customerIds.length === 0) {
+      return res.status(400).json({ success: false, message: "No customer IDs provided" });
+    }
+
+    const unarchived = await prisma.customerArchive.deleteMany({
+      where: { 
+        customerId: { in: customerIds }, 
+        adminId 
+      },
     });
 
-    return res.status(200).json({ success: true, message: "Customer unarchived" });
+    return res.status(200).json({ 
+      success: true, 
+      count: unarchived.count,
+      message: `${unarchived.count} customer(s) unarchived` 
+    });
   } catch (error) {
     next(new ApiError(500, error.message));
   }

@@ -52,6 +52,7 @@ import videoProjectRoutes from "./routes/route.videoProject.js";
 import path from "path";
 import mcpRoutes from "./routes/route.mcp.js";
 import brandRoutes from "./routes/brandRoutes.js";
+import activityRoutes from "./routes/activityRoutes.js";
 
 const app = express();
 app.use(cookieParser());
@@ -115,6 +116,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/salesscript", salesScriptRoutes);
 app.use("/api/tabbly", tabblyRoutes);
 app.use("/api/video-project", videoProjectRoutes);
+app.use("/api/activity", activityRoutes);
 app.use("/api/mcp",mcpRoutes);
 
 app.use(errorHandler);

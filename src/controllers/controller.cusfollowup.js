@@ -4,6 +4,7 @@ import ApiError from "../utils/ApiError.js";
 import { followupAgent } from "../ai/agent.js";
 import { notifyCustomerFollowupTaken, notifyFollowupNext } from "../jobs/notification/notificationEvents.js";
 import { getCustomerAccessFilter } from "./controller.customer.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const prisma = new PrismaClient();
 
@@ -170,6 +171,17 @@ export const createFollowup = async (req, res, next) => {
         CreatedById: admin.id || admin._id,
       },
       include: { customer: true },
+    });
+
+        logActivity({
+      req, admin,
+      action: "create",
+      entity: "followup",
+      entityId: followup.id,
+      entityName: followup.customer?.customerName,
+      customerId: followup.customerId,
+      followupId: followup.id,
+      meta: { StatusType: followup.StatusType, FollowupNextDate: followup.FollowupNextDate },
     });
 
 
@@ -441,6 +453,17 @@ export const updateFollowup = async (req, res, next) => {
       include: { customer: { include: { AssignTo: true } } },
     });
 
+        logActivity({
+      req, admin: req.admin,
+      action: "update",
+      entity: "followup",
+      entityId: updatedFollowup.id,
+      entityName: updatedFollowup.customer?.customerName,
+      customerId: updatedFollowup.customerId,
+      followupId: updatedFollowup.id,
+      meta: { StatusType: updatedFollowup.StatusType },
+    });
+
     res.status(200).json({
       success: true,
       message: "Follow-up updated successfully",
@@ -459,6 +482,15 @@ export const updateFollowup = async (req, res, next) => {
 export const deleteFollowup = async (req, res, next) => {
   try {
     await prisma.followup.delete({ where: { id: req.params.id } });
+        logActivity({
+      req, admin: req.admin,
+      action: "delete",
+      entity: "followup",
+      entityId: req.params.id,
+      entityName: existing?.customer?.customerName,
+      customerId: existing?.customerId,
+      followupId: req.params.id,
+    });
     res
       .status(200)
       .json({ success: true, message: "Follow-up deleted successfully" });
