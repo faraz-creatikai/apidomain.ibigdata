@@ -317,14 +317,12 @@ export async function SocialContentAgent(payload) {
 // for the matching instruction that tells the model how to use it.
 
 export async function EmailCampaignAgent(userPrompt, contextOrOptions = {}, modeArg) {
-  // Backward compatible with old positional calls:
-  //   EmailCampaignAgent(userPrompt, { customer: {...} }, "hindi")
-  // and supports the new bulk mode:
-  //   EmailCampaignAgent(userPrompt, { generationType: "bulk_template", availablePlaceholders, mode })
   const generationType = contextOrOptions.generationType || "personalized";
   const mode = contextOrOptions.mode || modeArg || "hindi";
   const customer = contextOrOptions.customer || null;
   const availablePlaceholders = contextOrOptions.availablePlaceholders || null;
+  const templateContext = contextOrOptions.templateContext || null;   // NEW
+  const insertionMode = contextOrOptions.insertionMode || null;        // NEW
 
   const payload = {
     userPrompt,
@@ -332,6 +330,7 @@ export async function EmailCampaignAgent(userPrompt, contextOrOptions = {}, mode
     generationType,
     ...(generationType === "personalized" && customer && { customer }),
     ...(generationType === "bulk_template" && availablePlaceholders && { availablePlaceholders }),
+    ...(generationType === "bulk_template" && templateContext && { templateContext, insertionMode }),
   };
 
   const { client, model, provider } = await getDynamicAIContext("GEMINI", "models/gemini-2.5-flash");

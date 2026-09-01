@@ -157,13 +157,19 @@ export function replacePlaceholders(str, customer) {
 }
 
 export function mergeAiContentIntoTemplate(templateHtml, aiBody, customer) {
-  // Insert the AI body FIRST, then resolve placeholders on the combined
-  // string. This matters now: aiBody itself can contain {{Name}}-style
-  // tokens in bulk-template mode, and they only get filled if the
-  // placeholder pass runs after the merge, not before.
-  const merged = templateHtml.includes('{{AI_CONTENT}}')
-    ? templateHtml.replace('{{AI_CONTENT}}', aiBody)
-    : templateHtml.replace('</body>', `<p>${aiBody}</p></body>`);
+  let merged;
+
+  if (templateHtml.includes('{{AI_CONTENT}}')) {
+    merged = templateHtml.replace('{{AI_CONTENT}}', aiBody);
+  } else if (templateHtml.includes('</body>')) {
+    merged = templateHtml.replace('</body>', `<p>${aiBody}</p></body>`);
+  } else {
+    // Fragment-style template with no anchor to insert into — e.g. a saved
+    // DB template body that isn't a full HTML document. Append instead of
+    // silently dropping the AI-written content.
+    merged = `${templateHtml}\n<p>${aiBody}</p>`;
+  }
+
   return replacePlaceholders(merged, customer);
 }
 
@@ -228,6 +234,38 @@ export const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
   </table>
 </body>
 </html>`;
+
+
+// Strips styles/scripts/tags and unresolved {{tokens}} so the AI reads
+// clean prose describing the template's tone/sections — not markup noise.
+export function extractTemplateContext(html, maxLength = 3000) {
+  if (!html) return '';
+  let text = html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/\{\{[^}]+\}\}/g, '')            // drop raw {{Name}}, {{AI_CONTENT}}, etc.
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|table|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n+/g, '\n')
+    .trim();
+
+  if (text.length > maxLength) text = text.slice(0, maxLength) + '…';
+  return text;
+}
+
+// Tells the AI where its copy actually lands: a designated slot mid-template,
+// or tacked on after a template that was never built with an AI slot in mind.
+export function getTemplateInsertionMode(html) {
+  if (!html) return 'none';
+  return html.includes('{{AI_CONTENT}}') ? 'placeholder' : 'append';
+}
 
 
 

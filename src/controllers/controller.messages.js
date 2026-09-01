@@ -5,7 +5,7 @@ import ApiError from "../utils/ApiError.js";
 import { makeCall } from "../config/exotel.js";
 import fs from "fs";
 import { EmailCampaignAgent } from "../ai/agent.js";
-import { collectAvailablePlaceholders, DEFAULT_TEMPLATE_HTML, mergeAiContentIntoTemplate, replacePlaceholders } from "../utils/mergeTemplate.js";
+import { collectAvailablePlaceholders, DEFAULT_TEMPLATE_HTML, extractTemplateContext, getTemplateInsertionMode, mergeAiContentIntoTemplate, replacePlaceholders } from "../utils/mergeTemplate.js";
 
 const prisma = new PrismaClient();
 
@@ -733,25 +733,36 @@ export const sendEmailDirectToCustomers = async (req, res, next) => {
       userPrompt,
       Subject,
       Body,
-      templateId,     // NEW: pick an existing saved Template, no AI
+      templateId,
       mode = "english",
-      templateHtml,   // wrapper used only when the AI generates the content
+      templateHtml,
     } = req.body;
 
     const hasManualContent = Boolean(Subject && Body);
+    const hasAiPrompt = Boolean(userPrompt && userPrompt.trim());
 
-    if (!userPrompt && !hasManualContent && !templateId) {
+    if (!hasAiPrompt && !hasManualContent && !templateId) {
       return next(new ApiError(400, "Provide one of: userPrompt (AI template), templateId (existing template), or Subject & Body"));
     }
 
     const customers = await fetchTargetCustomers({ customerIds, sendToAll });
     if (!customers.length) return next(new ApiError(404, "No customers found"));
 
-    // ── Resolve ONE subject/body pair for the whole batch, up front. ──
-    // This is the fix: AI runs 0 or 1 times total, never once per customer.
+    // If a saved template is referenced, fetch it once — used either as the
+    // skeleton AI writes into, or (when there's no AI prompt) sent verbatim.
+    let savedTemplate = null;
+    if (templateId) {
+      savedTemplate = await prisma.template.findUnique({ where: { id: templateId } });
+      if (!savedTemplate) return next(new ApiError(404, "Template not found"));
+      if (savedTemplate.type && savedTemplate.type !== "email") {
+        return next(new ApiError(400, `Template "${savedTemplate.name}" is a ${savedTemplate.type} template, not an email template`));
+      }
+    }
+
     let baseSubject = "";
     let baseBody = "";
-    let usedAiWrapper = false; // only the AI branch still needs the {{AI_CONTENT}} merge
+    let usedAiWrapper = false;
+    let mergeSkeleton = "";
     let metadata = {};
     let workSummary = "";
 
@@ -759,25 +770,28 @@ export const sendEmailDirectToCustomers = async (req, res, next) => {
       // 1) Fully manual — no AI, no DB lookup
       baseSubject = Subject;
       baseBody = Body;
-    } else if (templateId) {
-      // 2) Existing saved template — no AI
-      const tpl = await prisma.template.findUnique({ where: { id: templateId } });
-      if (!tpl) return next(new ApiError(404, "Template not found"));
-      if (tpl.type && tpl.type !== "email") {
-        return next(new ApiError(400, `Template "${tpl.name}" is a ${tpl.type} template, not an email template`));
-      }
-      baseSubject = tpl.subject || "";
-      baseBody = tpl.body || "";
-    } else if (userPrompt) {
-      // 3) AI generates ONE reusable template — called exactly once
+    } else if (hasAiPrompt) {
+      // 2) AI writes ONE reusable template — called exactly once.
+      // Skeleton priority: saved DB template body > frontend design templateHtml > DEFAULT_TEMPLATE_HTML
+      mergeSkeleton = savedTemplate?.body || templateHtml || DEFAULT_TEMPLATE_HTML;
       const availablePlaceholders = collectAvailablePlaceholders(customers);
+
+        // NEW: build readable context from the template the AI is writing into
+  const insertionMode = getTemplateInsertionMode(mergeSkeleton);
+  const templateContext = [
+    savedTemplate?.subject ? `Existing subject line: ${savedTemplate.subject}` : null,
+    extractTemplateContext(mergeSkeleton),
+  ].filter(Boolean).join('\n\n');
+
       const EmailResponse = await EmailCampaignAgent(userPrompt, {
         generationType: "bulk_template",
         availablePlaceholders,
+        templateContext,     // NEW
+    insertionMode,        // NEW
         mode,
       });
 
-      baseSubject = EmailResponse?.email?.subject || "";
+      baseSubject = EmailResponse?.email?.subject || savedTemplate?.subject || "";
       const aiBody = EmailResponse?.email?.body || "";
       metadata = EmailResponse?.metadata || {};
       workSummary = EmailResponse?.workSummary || "";
@@ -788,9 +802,13 @@ export const sendEmailDirectToCustomers = async (req, res, next) => {
 
       baseBody = aiBody;
       usedAiWrapper = true;
+    } else if (templateId) {
+      // 3) Existing saved template, sent verbatim — no AI
+      baseSubject = savedTemplate.subject || "";
+      baseBody = savedTemplate.body || "";
     }
 
-    const templateToUse = templateHtml || DEFAULT_TEMPLATE_HTML;
+    const templateToUse = usedAiWrapper ? mergeSkeleton : (templateHtml || DEFAULT_TEMPLATE_HTML);
 
     const results = [];
     for (const c of customers) {
@@ -825,9 +843,13 @@ export const sendEmailDirectToCustomers = async (req, res, next) => {
     res.status(200).json({
       success: true,
       sent: results.filter((r) => r.status === "sent").length,
-      generationMode: hasManualContent ? "manual" : templateId ? "existing_template" : "ai_bulk_template",
-      metadata,     // now batch-level, not per-customer (only set in AI mode)
-      workSummary,  // same
+      generationMode: hasManualContent
+        ? "manual"
+        : hasAiPrompt
+        ? (templateId ? "ai_refined_saved_template" : "ai_bulk_template")
+        : "existing_template",
+      metadata,
+      workSummary,
       results,
     });
   } catch (err) {
