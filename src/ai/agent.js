@@ -316,11 +316,22 @@ export async function SocialContentAgent(payload) {
 // payload the prompt sees as DATA.templateHtml. See emailCampaignPrompt.js
 // for the matching instruction that tells the model how to use it.
 
-export async function EmailCampaignAgent(userPrompt, customerContext = {}, mode = "hindi") {
+export async function EmailCampaignAgent(userPrompt, contextOrOptions = {}, modeArg) {
+  // Backward compatible with old positional calls:
+  //   EmailCampaignAgent(userPrompt, { customer: {...} }, "hindi")
+  // and supports the new bulk mode:
+  //   EmailCampaignAgent(userPrompt, { generationType: "bulk_template", availablePlaceholders, mode })
+  const generationType = contextOrOptions.generationType || "personalized";
+  const mode = contextOrOptions.mode || modeArg || "hindi";
+  const customer = contextOrOptions.customer || null;
+  const availablePlaceholders = contextOrOptions.availablePlaceholders || null;
+
   const payload = {
     userPrompt,
     mode,
-    ...(customerContext.customer && { customer: customerContext.customer }),
+    generationType,
+    ...(generationType === "personalized" && customer && { customer }),
+    ...(generationType === "bulk_template" && availablePlaceholders && { availablePlaceholders }),
   };
 
   const { client, model, provider } = await getDynamicAIContext("GEMINI", "models/gemini-2.5-flash");

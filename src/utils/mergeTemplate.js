@@ -146,15 +146,25 @@ export function replacePlaceholders(str, customer) {
   out = out.replaceAll('{{CUSTOMER_FIELDS_ROWS_DARK}}', renderCustomerFieldsRows(customer.CustomerFields, 'dark'));
   out = out.replaceAll('{{OUR_SERVICES_ROWS}}', renderOurServicesRows('light'));
   out = out.replaceAll('{{OUR_SERVICES_ROWS_DARK}}', renderOurServicesRows('dark'));
-  out = out.replaceAll('{{RESPONSIVE_STYLES}}', RESPONSIVE_STYLES); // ← new
+  out = out.replaceAll('{{RESPONSIVE_STYLES}}', RESPONSIVE_STYLES);
+
+  // Safety net: a bulk AI template may reference a {{CustomerFields.x}}
+  // key this particular customer doesn't have. Strip anything left over
+  // instead of leaking a raw {{...}} token into the sent email.
+  out = out.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
+
   return out;
 }
 
 export function mergeAiContentIntoTemplate(templateHtml, aiBody, customer) {
-  const filled = replacePlaceholders(templateHtml, customer);
-  return filled.includes('{{AI_CONTENT}}')
-    ? filled.replace('{{AI_CONTENT}}', aiBody)
-    : filled.replace('</body>', `<p>${aiBody}</p></body>`);
+  // Insert the AI body FIRST, then resolve placeholders on the combined
+  // string. This matters now: aiBody itself can contain {{Name}}-style
+  // tokens in bulk-template mode, and they only get filled if the
+  // placeholder pass runs after the merge, not before.
+  const merged = templateHtml.includes('{{AI_CONTENT}}')
+    ? templateHtml.replace('{{AI_CONTENT}}', aiBody)
+    : templateHtml.replace('</body>', `<p>${aiBody}</p></body>`);
+  return replacePlaceholders(merged, customer);
 }
 
 // utils/mergeTemplate.js
@@ -218,3 +228,25 @@ export const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
   </table>
 </body>
 </html>`;
+
+
+
+// Builds the list of {{...}} tokens the AI may use when writing ONE
+// reusable template for a batch of different customers. Static fields
+// are always available, plus the union of CustomerFields keys actually
+// present across the selected customers (capped to keep the prompt small).
+export function collectAvailablePlaceholders(customers, maxDynamicKeys = 25) {
+  const staticKeys = ['Name', 'City', 'Campaign', 'ContactNumber', 'Email'];
+  const dynamicKeys = new Set();
+
+  for (const c of customers) {
+    if (c.CustomerFields && typeof c.CustomerFields === 'object') {
+      for (const k of Object.keys(c.CustomerFields)) dynamicKeys.add(k);
+    }
+  }
+
+  return [
+    ...staticKeys.map((k) => `{{${k}}}`),
+    ...[...dynamicKeys].slice(0, maxDynamicKeys).map((k) => `{{CustomerFields.${k}}}`),
+  ];
+}

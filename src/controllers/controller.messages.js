@@ -5,7 +5,7 @@ import ApiError from "../utils/ApiError.js";
 import { makeCall } from "../config/exotel.js";
 import fs from "fs";
 import { EmailCampaignAgent } from "../ai/agent.js";
-import { DEFAULT_TEMPLATE_HTML, mergeAiContentIntoTemplate, replacePlaceholders } from "../utils/mergeTemplate.js";
+import { collectAvailablePlaceholders, DEFAULT_TEMPLATE_HTML, mergeAiContentIntoTemplate, replacePlaceholders } from "../utils/mergeTemplate.js";
 
 const prisma = new PrismaClient();
 
@@ -725,7 +725,6 @@ function buildCustomerContext(baseCustomer) {
 // too in case you want to log/attribute it later.
 
 
-
 export const sendEmailDirectToCustomers = async (req, res, next) => {
   try {
     const {
@@ -734,20 +733,66 @@ export const sendEmailDirectToCustomers = async (req, res, next) => {
       userPrompt,
       Subject,
       Body,
+      templateId,     // NEW: pick an existing saved Template, no AI
       mode = "english",
-      templateHtml,
+      templateHtml,   // wrapper used only when the AI generates the content
     } = req.body;
 
-    if (!userPrompt && !(Subject && Body)) {
-      return next(new ApiError(400, "Either userPrompt or Subject & Body is required"));
+    const hasManualContent = Boolean(Subject && Body);
+
+    if (!userPrompt && !hasManualContent && !templateId) {
+      return next(new ApiError(400, "Provide one of: userPrompt (AI template), templateId (existing template), or Subject & Body"));
     }
 
     const customers = await fetchTargetCustomers({ customerIds, sendToAll });
     if (!customers.length) return next(new ApiError(404, "No customers found"));
 
-    const results = [];
-    const templateToUse = templateHtml || DEFAULT_TEMPLATE_HTML; // <-- always some template now
+    // ── Resolve ONE subject/body pair for the whole batch, up front. ──
+    // This is the fix: AI runs 0 or 1 times total, never once per customer.
+    let baseSubject = "";
+    let baseBody = "";
+    let usedAiWrapper = false; // only the AI branch still needs the {{AI_CONTENT}} merge
+    let metadata = {};
+    let workSummary = "";
 
+    if (hasManualContent) {
+      // 1) Fully manual — no AI, no DB lookup
+      baseSubject = Subject;
+      baseBody = Body;
+    } else if (templateId) {
+      // 2) Existing saved template — no AI
+      const tpl = await prisma.template.findUnique({ where: { id: templateId } });
+      if (!tpl) return next(new ApiError(404, "Template not found"));
+      if (tpl.type && tpl.type !== "email") {
+        return next(new ApiError(400, `Template "${tpl.name}" is a ${tpl.type} template, not an email template`));
+      }
+      baseSubject = tpl.subject || "";
+      baseBody = tpl.body || "";
+    } else if (userPrompt) {
+      // 3) AI generates ONE reusable template — called exactly once
+      const availablePlaceholders = collectAvailablePlaceholders(customers);
+      const EmailResponse = await EmailCampaignAgent(userPrompt, {
+        generationType: "bulk_template",
+        availablePlaceholders,
+        mode,
+      });
+
+      baseSubject = EmailResponse?.email?.subject || "";
+      const aiBody = EmailResponse?.email?.body || "";
+      metadata = EmailResponse?.metadata || {};
+      workSummary = EmailResponse?.workSummary || "";
+
+      if (!baseSubject || !aiBody) {
+        return next(new ApiError(502, "AI failed to generate valid template content"));
+      }
+
+      baseBody = aiBody;
+      usedAiWrapper = true;
+    }
+
+    const templateToUse = templateHtml || DEFAULT_TEMPLATE_HTML;
+
+    const results = [];
     for (const c of customers) {
       try {
         if (!c.Email) {
@@ -755,41 +800,34 @@ export const sendEmailDirectToCustomers = async (req, res, next) => {
           continue;
         }
 
-        let subject = "";
-        let body = "";
-        let metadata = {};
-        let workSummary = "";
-
-        if (userPrompt) {
-          const customerContext = buildCustomerContext(c);
-          const EmailResponse = await EmailCampaignAgent(userPrompt, customerContext, mode);
-
-          subject = EmailResponse?.email?.subject || "";
-          const aiBody = EmailResponse?.email?.body || "";
-          metadata = EmailResponse?.metadata || {};
-          workSummary = EmailResponse?.workSummary || "";
-
-          if (!subject || !aiBody) {
-            results.push({ id: c.id, name: c.customerName, status: "failed", error: "AI failed to generate valid content" });
-            continue;
-          }
-
-          body = mergeAiContentIntoTemplate(templateToUse, aiBody, c);
-        } else {
-          subject = replacePlaceholders(Subject, c);
-          body = replacePlaceholders(Body, c);
-        }
+        const subject = replacePlaceholders(baseSubject, c);
+        const body = usedAiWrapper
+          ? mergeAiContentIntoTemplate(templateToUse, baseBody, c)
+          : replacePlaceholders(baseBody, c);
 
         const info = await sendEmail(c.Email, subject, body);
-        results.push({ id: c.id, email: c.Email, status: "sent", metadata, workSummary, info: info.messageId || info.response });
+        results.push({ id: c.id, email: c.Email, status: "sent", info: info.messageId || info.response });
       } catch (err) {
-        results.push({ id: c.id, name: c.customerName, status: "failed", error: err.message });
+        let cleanErrorMessage = err.message;
+        try {
+          const jsonMatch = err.message.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.error && parsed.error.message) {
+              cleanErrorMessage = parsed.error.message;
+            }
+          }
+        } catch (parseErr) {}
+        results.push({ id: c.id, name: c.customerName, status: "failed", error: cleanErrorMessage });
       }
     }
 
     res.status(200).json({
       success: true,
-      sent: results.filter(r => r.status === "sent").length,
+      sent: results.filter((r) => r.status === "sent").length,
+      generationMode: hasManualContent ? "manual" : templateId ? "existing_template" : "ai_bulk_template",
+      metadata,     // now batch-level, not per-customer (only set in AI mode)
+      workSummary,  // same
       results,
     });
   } catch (err) {

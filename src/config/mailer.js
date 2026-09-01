@@ -8,7 +8,7 @@ dotenv.config();
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: process.env.SMTP_PORT || 587,
-  secure: true, // use true for 465
+  secure: process.env.SMTP_PORT == 465, // use true for 465
   pool: true,         // 👈 ENABLES POOLING
   maxConnections: 3,  // 👈 MAX 3 CONNECTIONS AT ONCE
   maxMessages: 100,   // 👈 REUSE CONNECTION 100 TIMES
@@ -48,7 +48,7 @@ const saveToSentFolder = async (rawEmail) => {
 export const sendEmail = async (to, subject, html) => {
   try {
     const mailOptions = {
-      from: `"CreatikAI Team" <${process.env.SMTP_USER}>`,
+      from: `"CreatikAI Team" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       html,
@@ -58,7 +58,7 @@ export const sendEmail = async (to, subject, html) => {
 
     const info = await transporter.sendMail({
       envelope: {
-        from: process.env.SMTP_USER,
+        from: process.env.EMAIL_USER,
         to,
       },
       raw: rawEmail,
@@ -66,7 +66,7 @@ export const sendEmail = async (to, subject, html) => {
 
     console.log("✅ Email sent:", info.response);
 
-    await saveToSentFolder(rawEmail);
+   // await saveToSentFolder(rawEmail);
 
     return info;
   } catch (error) {
@@ -118,7 +118,7 @@ export const sendSystemEmail = async (to, userName, password, role) => {
     `;
 
     const mailOptions = {
-      from: `"System Notification" <${process.env.SMTP_USER}>`,
+      from: `"System Notification" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       html,

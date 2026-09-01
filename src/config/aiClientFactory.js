@@ -70,6 +70,7 @@ export async function getDynamicAIContext(defaultProvider, defaultModel) {
       console.warn(`Unsupported active provider in DB: ${activeProvider}. Falling back to default.`);
       return useFallback();
     }
+    
 
     return {
       client: clientInstance,
