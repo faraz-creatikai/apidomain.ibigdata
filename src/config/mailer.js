@@ -45,13 +45,14 @@ const saveToSentFolder = async (rawEmail) => {
 };
 
 // 3️⃣ Generic sendEmail function 
-export const sendEmail = async (to, subject, html) => {
+export const sendEmail = async (to, subject, html, attachments = []) => {
   try {
     const mailOptions = {
       from: `"CreatikAI Team" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       html,
+      ...(attachments.length > 0 && { attachments }),
     };
 
     const rawEmail = await new MailComposer(mailOptions).compile().build();
@@ -65,9 +66,6 @@ export const sendEmail = async (to, subject, html) => {
     });
 
     console.log("✅ Email sent:", info.response);
-
-   // await saveToSentFolder(rawEmail);
-
     return info;
   } catch (error) {
     console.error("❌ Email error:", error);

@@ -322,3 +322,68 @@ export function getTemplateInsertionMode(html) {
   if (!html) return 'none';
   return html.includes('{{AI_CONTENT}}') ? 'placeholder' : 'append';
 }
+
+
+
+// ─────────────────────────────────────────────────────────────
+// Multi-slot AI templates. A template can define named content slots
+// as {{AI:slotId}} tokens in its HTML. Instead of AI writing one message
+// for a single insertion point, it writes content for EVERY slot in one
+// call — the surrounding design (header, footer, boxes, branding) is
+// never touched, only these labeled content areas are AI-authored.
+// ─────────────────────────────────────────────────────────────
+const SLOT_TAG_ALLOWLIST = {
+  paragraph: ['p', 'b', 'i', 'br', 'a'],
+  short: ['b', 'i', 'br'],
+  bullets: ['tr', 'td', 'b', 'i', 'br'],
+};
+
+// Strips any tag not allowed for that slot's format, keeping inner text.
+// Guards against the model wrapping bullet rows in a stray <table>, adding
+// inline styles/onclick, or otherwise producing markup that could break
+// the surrounding design.
+function sanitizeSlotHtml(html, format = 'paragraph') {
+  if (!html) return '';
+  const allowed = SLOT_TAG_ALLOWLIST[format] || SLOT_TAG_ALLOWLIST.paragraph;
+  let out = String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '');
+
+  out = out.replace(/<\/?([a-zA-Z0-9]+)([^>]*)>/g, (match, tagName, attrs) => {
+    const tag = tagName.toLowerCase();
+    if (!allowed.includes(tag)) return '';
+    if (tag === 'a') {
+      const hrefMatch = attrs.match(/href=["']([^"']*)["']/i);
+      const href = hrefMatch ? ` href="${hrefMatch[1]}" target="_blank" rel="noopener"` : '';
+      return match.startsWith('</') ? '</a>' : `<a${href}>`;
+    }
+    return match.startsWith('</') ? `</${tag}>` : `<${tag}>`;
+  });
+
+  return out.trim();
+}
+
+// Finds every {{AI:slotId}} token in a template's raw design HTML.
+export function extractAiSlotIds(templateHtml) {
+  if (!templateHtml) return [];
+  const ids = new Set();
+  const regex = /\{\{\s*AI:([\w-]+)\s*\}\}/g;
+  let m;
+  while ((m = regex.exec(templateHtml))) ids.add(m[1]);
+  return [...ids];
+}
+
+// Inserts AI-generated content into a design's named slots. Customer
+// tokens (e.g. {{Name}}, {{CustomerFields.DesignScore}}) inside the
+// slot content are left as-is — they get resolved later, once per
+// customer, by the normal replacePlaceholders() call in the send loop.
+// Any slot the AI didn't return is removed rather than left as a raw
+// {{AI:...}} token in a sent email.
+export function insertAiSlots(templateHtml, slotsMap = {}, slotDefs = []) {
+  const formatById = new Map(slotDefs.map((s) => [s.id, s.format || 'paragraph']));
+  return templateHtml.replace(/\{\{\s*AI:([\w-]+)\s*\}\}/g, (match, slotId) => {
+    const raw = slotsMap[slotId];
+    if (!raw) return '';
+    return sanitizeSlotHtml(raw, formatById.get(slotId));
+  });
+}

@@ -6,6 +6,7 @@ import { makeCall } from "../config/exotel.js";
 import fs from "fs";
 import { EmailCampaignAgent } from "../ai/agent.js";
 import { collectAvailablePlaceholders, DEFAULT_TEMPLATE_HTML, extractTemplateContext, getTemplateInsertionMode, mergeAiContentIntoTemplate, replacePlaceholders } from "../utils/mergeTemplate.js";
+import { inlineAllImages } from "../utils/inlineImage.js";
 
 const prisma = new PrismaClient();
 
@@ -736,6 +737,7 @@ export const sendEmailDirectToCustomers = async (req, res, next) => {
       templateId,
       mode = "english",
       templateHtml,
+      templateAiSlots,
     } = req.body;
 
     const hasManualContent = Boolean(Subject && Body);
@@ -771,44 +773,97 @@ export const sendEmailDirectToCustomers = async (req, res, next) => {
       baseSubject = Subject;
       baseBody = Body;
     } else if (hasAiPrompt) {
-      // 2) AI writes ONE reusable template — called exactly once.
-      // Skeleton priority: saved DB template body > frontend design templateHtml > DEFAULT_TEMPLATE_HTML
-      mergeSkeleton = savedTemplate?.body || templateHtml || DEFAULT_TEMPLATE_HTML;
-      const availablePlaceholders = collectAvailablePlaceholders(customers);
+  const templateHtmlForAi = savedTemplate?.body || templateHtml || DEFAULT_TEMPLATE_HTML;
+  const availablePlaceholders = collectAvailablePlaceholders(customers);
 
-        // NEW: build readable context from the template the AI is writing into
-  const insertionMode = getTemplateInsertionMode(mergeSkeleton);
-  const templateContext = [
-    savedTemplate?.subject ? `Existing subject line: ${savedTemplate.subject}` : null,
-    extractTemplateContext(mergeSkeleton),
-  ].filter(Boolean).join('\n\n');
+  // Only take the slots route if the frontend sent slot definitions AND
+  // this template's HTML actually contains matching {{AI:id}} tokens —
+  // guards against stale frontend/template version mismatches silently
+  // producing a broken email.
+  const slotIdsInHtml = extractAiSlotIds(templateHtmlForAi);
+  const validSlotDefs = Array.isArray(templateAiSlots)
+    ? templateAiSlots.filter((s) => s?.id && slotIdsInHtml.includes(s.id))
+    : [];
 
-      const EmailResponse = await EmailCampaignAgent(userPrompt, {
-        generationType: "bulk_template",
-        availablePlaceholders,
-        templateContext,     // NEW
-    insertionMode,        // NEW
-        mode,
-      });
+  if (validSlotDefs.length > 0) {
+    // ── NEW: multi-slot mode — design stays fixed, AI writes ALL content ──
+    const EmailResponse = await EmailCampaignAgent(userPrompt, {
+      generationType: "bulk_template_slots",
+      availablePlaceholders,
+      templateSlots: validSlotDefs,
+      mode,
+    });
 
-      baseSubject = EmailResponse?.email?.subject || savedTemplate?.subject || "";
-      const aiBody = EmailResponse?.email?.body || "";
-      metadata = EmailResponse?.metadata || {};
-      workSummary = EmailResponse?.workSummary || "";
+    baseSubject = EmailResponse?.email?.subject || "";
+    const slotsReturned = EmailResponse?.slots || {};
+    metadata = EmailResponse?.metadata || {};
+    workSummary = EmailResponse?.workSummary || "";
 
-      if (!baseSubject || !aiBody) {
-        return next(new ApiError(502, "AI failed to generate valid template content"));
-      }
+    if (!baseSubject || Object.keys(slotsReturned).length === 0) {
+      return next(new ApiError(502, "AI failed to generate valid slot content"));
+    }
 
-      baseBody = aiBody;
-      usedAiWrapper = true;
-    } else if (templateId) {
+    const missingSlots = validSlotDefs.map((s) => s.id).filter((id) => !slotsReturned[id]);
+    if (missingSlots.length) {
+      console.warn("[email-campaign] AI omitted slots:", missingSlots.join(", "));
+    }
+
+    // Slots are already stitched into the design here — customer tokens
+    // (e.g. {{Name}}, {{CustomerFields.x}}) inside them get resolved once
+    // per customer below, same as every other mode.
+    baseBody = insertAiSlots(templateHtmlForAi, slotsReturned, validSlotDefs);
+    usedAiWrapper = false;
+  } else {
+    // ── EXISTING single-message mode — unchanged ──
+    mergeSkeleton = templateHtmlForAi;
+    const insertionMode = getTemplateInsertionMode(mergeSkeleton);
+    const templateContext = [
+      savedTemplate?.subject ? `Existing subject line: ${savedTemplate.subject}` : null,
+      extractTemplateContext(mergeSkeleton),
+    ].filter(Boolean).join('\n\n');
+
+    const EmailResponse = await EmailCampaignAgent(userPrompt, {
+      generationType: "bulk_template",
+      availablePlaceholders,
+      templateContext,
+      insertionMode,
+      mode,
+    });
+
+    baseSubject = EmailResponse?.email?.subject || savedTemplate?.subject || "";
+    const aiBody = EmailResponse?.email?.body || "";
+    metadata = EmailResponse?.metadata || {};
+    workSummary = EmailResponse?.workSummary || "";
+
+    if (!baseSubject || !aiBody) {
+      return next(new ApiError(502, "AI failed to generate valid template content"));
+    }
+
+    baseBody = aiBody;
+    usedAiWrapper = true;
+  }
+} else if (templateId) {
       // 3) Existing saved template, sent verbatim — no AI
       baseSubject = savedTemplate.subject || "";
       baseBody = savedTemplate.body || "";
     }
 
     const templateToUse = usedAiWrapper ? mergeSkeleton : (templateHtml || DEFAULT_TEMPLATE_HTML);
+    // NEW: resolve every image (base64 or remote URL) into a CID attachment
+// ONCE — before customer-specific substitution — since the image itself
+// never changes per recipient.
+let campaignAttachments = [];
+if (usedAiWrapper) {
+  const { html: inlinedSkeleton, attachments } = await inlineAllImages(templateToUse);
+  // templateToUse is reassigned so every per-customer merge below uses
+  // the already-CID-rewritten skeleton.
+  templateToUse = inlinedSkeleton;
+  campaignAttachments = attachments;
+} else {
+  const { html: inlinedBody, attachments } = await inlineAllImages(baseBody);
+  baseBody = inlinedBody;
+  campaignAttachments = attachments;
+}
 
     const results = [];
     for (const c of customers) {
@@ -823,7 +878,7 @@ export const sendEmailDirectToCustomers = async (req, res, next) => {
           ? mergeAiContentIntoTemplate(templateToUse, baseBody, c)
           : replacePlaceholders(baseBody, c);
 
-        const info = await sendEmail(c.Email, subject, body);
+        const info = await sendEmail(c.Email, subject, body,campaignAttachments);
         results.push({ id: c.id, email: c.Email, status: "sent", info: info.messageId || info.response });
       } catch (err) {
         let cleanErrorMessage = err.message;

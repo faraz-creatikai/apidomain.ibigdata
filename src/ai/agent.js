@@ -321,16 +321,18 @@ export async function EmailCampaignAgent(userPrompt, contextOrOptions = {}, mode
   const mode = contextOrOptions.mode || modeArg || "hindi";
   const customer = contextOrOptions.customer || null;
   const availablePlaceholders = contextOrOptions.availablePlaceholders || null;
-  const templateContext = contextOrOptions.templateContext || null;   // NEW
-  const insertionMode = contextOrOptions.insertionMode || null;        // NEW
+  const templateContext = contextOrOptions.templateContext || null;
+  const insertionMode = contextOrOptions.insertionMode || null;
+  const templateSlots = contextOrOptions.templateSlots || null; // NEW
 
   const payload = {
     userPrompt,
     mode,
     generationType,
     ...(generationType === "personalized" && customer && { customer }),
-    ...(generationType === "bulk_template" && availablePlaceholders && { availablePlaceholders }),
+    ...(availablePlaceholders && { availablePlaceholders }),
     ...(generationType === "bulk_template" && templateContext && { templateContext, insertionMode }),
+    ...(generationType === "bulk_template_slots" && templateSlots && { templateSlots }), // NEW
   };
 
   const { client, model, provider } = await getDynamicAIContext("GEMINI", "models/gemini-2.5-flash");
