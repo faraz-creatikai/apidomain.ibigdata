@@ -5,7 +5,7 @@ import ApiError from "../utils/ApiError.js";
 import { makeCall } from "../config/exotel.js";
 import fs from "fs";
 import { EmailCampaignAgent } from "../ai/agent.js";
-import { collectAvailablePlaceholders, DEFAULT_TEMPLATE_HTML, extractTemplateContext, getTemplateInsertionMode, mergeAiContentIntoTemplate, replacePlaceholders } from "../utils/mergeTemplate.js";
+import { collectAvailablePlaceholders, DEFAULT_TEMPLATE_HTML, extractAiSlotIds, extractTemplateContext, getTemplateInsertionMode, mergeAiContentIntoTemplate, replacePlaceholders } from "../utils/mergeTemplate.js";
 import { inlineAllImages } from "../utils/inlineImage.js";
 
 const prisma = new PrismaClient();
