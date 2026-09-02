@@ -1,27 +1,17 @@
 // utils/mergeTemplate.js
+import { BRAND } from "../config/brandConfig.js";
 
 // ─────────────────────────────────────────────────────────────
 // Shared responsive rules, injected via {{RESPONSIVE_STYLES}}.
-// One place to edit breakpoint behavior for every template.
 // ─────────────────────────────────────────────────────────────
 const RESPONSIVE_STYLES = `
 <style>
   @media only screen and (max-width: 600px) {
     .ec-outer { padding: 20px 12px !important; }
     .ec-inner-pad { padding: 24px 18px !important; }
-    .ec-service-cell { display: block !important; width: 100% !important; padding: 6px 0 !important; }
-    .ec-service-empty { display: none !important; }
+    .ec-service-cell { display: block !important; width: 100% !important; padding: 8px 0 !important; }
   }
 </style>`;
-
-function toLabel(key) {
-  return key
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[-_]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 function escapeHtml(str) {
   return String(str)
@@ -32,156 +22,223 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-// variant: "light" (default, for white/light card backgrounds)
-//        | "dark"  (for dark-card templates like promo-offer, dark-luxury-offer)
-function renderCustomerFieldsRows(customerFields, variant = 'light') {
-  const palette =
-    variant === 'dark'
-      ? { label: '#e2e8f0', value: '#94a3b8', empty: '#64748b' }
-      : { label: '#0f172a', value: '#475569', empty: '#94a3b8' };
-
-  const entries = Object.entries(customerFields || {}).filter(([, v]) => {
-    if (v === null || v === undefined) return false;
-    return String(v).trim().length > 0;
-  });
-
-  if (!entries.length) {
-    return `<tr><td colspan="2" style="padding:6px 0; color:${palette.empty}; font-size:13px; font-style:italic;">No additional details available.</td></tr>`;
-  }
-
-  return entries
-    .map(([key, value]) => {
-      const label = escapeHtml(toLabel(key));
-      const val = escapeHtml(value);
-      return `<tr>
-        <td width="35%" style="padding: 6px 0; color: ${palette.label}; font-weight: 600; font-size: 14px; vertical-align: top;">${label}:</td>
-        <td width="65%" style="padding: 6px 0; color: ${palette.value}; font-size: 14px; vertical-align: top;">${val}</td>
-      </tr>`;
-    })
-    .join('\n');
+function normalizeKey(key) {
+  return String(key).toLowerCase().replace(/[\s_-]+/g, '');
 }
 
 // ─────────────────────────────────────────────────────────────
-// "Our Services" — SINGLE SOURCE OF TRUTH.
-// Edit this array only. It's used by every template automatically
-// via the {{OUR_SERVICES_ROWS}} / {{OUR_SERVICES_ROWS_DARK}} tokens —
-// no need to touch emailTemplate.ts when the offering changes.
-// `icon` is a plain emoji so nothing needs to be hosted/uploaded.
+// Schema-aware field resolution.
+//
+// Lets a template reference ANY Customer field — or a CustomerFields.*
+// key — with one generic token: {{FieldName}} or [FieldName]. No manual
+// per-field wiring needed when the schema changes.
+//
+// Resolution order:
+//   1. Friendly alias → the real Prisma column (handles names like
+//      "Business Name" / "Phone" / "Address" that don't match the column
+//      name literally)
+//   2. Exact Prisma column on the customer object, case/spacing-insensitive
+//      (covers any schema field not in the alias map, including new ones
+//      added later)
+//   3. A matching key inside the dynamic CustomerFields JSON blob — this is
+//      how campaign-specific data (audit scores, notes, anything without
+//      its own column) gets in, WITHOUT dumping the whole JSON blob
+//   4. Not found → null (caller renders blank rather than leaking a token)
 // ─────────────────────────────────────────────────────────────
-const OUR_SERVICES = [
-  {
-    icon: '🤖',
-    title: 'AI Agents',
-    description: 'Custom AI agents that handle leads, bookings, and support on your website automatically.',
-  },
-  {
-    icon: '🔍',
-    title: 'SEO-Optimized Website',
-    description: 'Search-ready pages built to rank — clean structure, fast load times, proper metadata.',
-  },
-  {
-    icon: '💬',
-    title: 'AI Chatbot',
-    description: 'A trained chatbot on your site that answers visitor questions and captures leads 24/7.',
-  },
-  {
-    icon: '🎨',
-    title: 'Design Improvement',
-    description: 'A refreshed, modern look for your existing site — better UX, better conversions.',
-  },
-];
+const SCHEMA_FIELD_ALIASES = {
+  name: 'customerName',
+  customername: 'customerName',
+  // No dedicated "business name" column exists on Customer — this reuses
+  // customerName. If you ever add a real BusinessName column or a
+  // CustomerFields.BusinessName key, delete this line and it'll resolve
+  // through step 2/3 instead.
+  businessname: 'customerName',
+  business: 'customerName',
+  clientname: 'customerName',
+  leadname: 'customerName',
 
+  email: 'Email',
+  emailid: 'Email',
+  emailaddress: 'Email',
 
+  phone: 'ContactNumber',
+  contact: 'ContactNumber',
+  mobile: 'ContactNumber',
+  contactnumber: 'ContactNumber',
+  phonenumber: 'ContactNumber',
 
-// variant: "light" (default) | "dark" — same idea as renderCustomerFieldsRows
-function renderOurServicesRows(variant = 'light') {
-  const palette =
-    variant === 'dark'
-      ? { cardBg: 'rgba(255,255,255,0.04)', cardBorder: 'rgba(255,255,255,0.1)', title: '#f1f5f9', desc: '#94a3b8' }
-      : { cardBg: '#f8fafc', cardBorder: '#e2e8f0', title: '#0f172a', desc: '#64748b' };
+  city: 'City',
+  location: 'Location',
+  sublocation: 'SubLocation',
+  area: 'Area',
+  address: 'Adderess',   // matches the schema's existing spelling
+  adderess: 'Adderess',
 
-  const cell = (s) => `
-    <td width="50%" valign="top" class="ec-service-cell" style="padding:6px;">
-      <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background:${palette.cardBg}; border:1px solid ${palette.cardBorder}; border-radius:8px;">
+  campaign: 'Campaign',
+  customertype: 'CustomerType',
+  type: 'CustomerType',
+  customersubtype: 'CustomerSubType',
+  subtype: 'CustomerSubType',
+  leadtype: 'LeadType',
+  leadtemperature: 'LeadTemperature',
+
+  facilities: 'Facillities',
+  facillities: 'Facillities',
+  referenceid: 'ReferenceId',
+  customerid: 'CustomerId',
+  clientid: 'ClientId',
+
+  date: 'CustomerDate',
+  customerdate: 'CustomerDate',
+  year: 'CustomerYear',
+  customeryear: 'CustomerYear',
+
+  description: 'Description',
+  video: 'Video',
+  verified: 'Verified',
+  googlemap: 'GoogleMap',
+  map: 'GoogleMap',
+
+  url: 'URL',
+  website: 'URL',
+  price: 'Price',
+  pricenumber: 'PriceNumber',
+  other: 'Other',
+};
+
+export function resolveFieldValue(rawKey, customer) {
+  if (!customer) return null;
+  const norm = normalizeKey(rawKey);
+
+  // 1. friendly alias → real column
+  const aliasCol = SCHEMA_FIELD_ALIASES[norm];
+  if (aliasCol && customer[aliasCol] !== undefined && customer[aliasCol] !== null && customer[aliasCol] !== '') {
+    return String(customer[aliasCol]);
+  }
+
+  // 2. exact Prisma column, case/spacing-insensitive
+  const directKey = Object.keys(customer).find(
+    (k) => normalizeKey(k) === norm && typeof customer[k] !== 'object'
+  );
+  if (directKey && customer[directKey] !== undefined && customer[directKey] !== null && customer[directKey] !== '') {
+    return String(customer[directKey]);
+  }
+
+  // 3. dynamic CustomerFields JSON — e.g. audit scores, campaign-specific
+  //    notes that don't have a fixed column of their own
+  if (customer.CustomerFields && typeof customer.CustomerFields === 'object') {
+    const cfKey = Object.keys(customer.CustomerFields).find((k) => normalizeKey(k) === norm);
+    if (cfKey) {
+      const val = customer.CustomerFields[cfKey];
+      if (val !== undefined && val !== null && val !== '') return String(val);
+    }
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Brand tokens — {{BRAND.fieldName}} — resolved from config/brandConfig.js.
+// ─────────────────────────────────────────────────────────────
+export function applyBrandTokens(str) {
+  if (!str) return str;
+  return str.replace(/\{\{\s*BRAND\.(\w+)\s*\}\}/g, (_match, key) => {
+    const val = BRAND[key];
+    return val !== undefined ? escapeHtml(val) : '';
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Main merge entry point. Supports two customer-token syntaxes through the
+// SAME resolver, so both AI-authored copy and hand-built templates work:
+//   {{Name}}, {{CustomerFields.domain}}     — legacy curly syntax
+//   [Customer Name], [OverallWebsiteScore]  — bracket syntax (spaces ok)
+// Anything that doesn't resolve is dropped rather than left as a raw
+// token in a sent email.
+// ─────────────────────────────────────────────────────────────
+export function replacePlaceholders(str, customer) {
+  if (!str) return str;
+  let out = applyBrandTokens(str);
+
+  // {{...}} tokens
+  out = out.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, rawKey) => {
+    if (rawKey.startsWith('CustomerFields.')) {
+      const cfKey = rawKey.slice('CustomerFields.'.length);
+      const val = customer?.CustomerFields?.[cfKey];
+      return val !== undefined && val !== null && val !== '' ? escapeHtml(String(val)) : '';
+    }
+    const val = resolveFieldValue(rawKey, customer);
+    return val !== null ? escapeHtml(val) : '';
+  });
+
+  // [...] tokens — letters, numbers, spaces, underscores, hyphens
+  out = out.replace(/\[([A-Za-z][A-Za-z0-9 _-]{0,60})\]/g, (match, rawKey) => {
+    const val = resolveFieldValue(rawKey, customer);
+    return val !== null ? escapeHtml(val) : '';
+  });
+
+  out = out.replaceAll('{{RESPONSIVE_STYLES}}', RESPONSIVE_STYLES);
+
+  return out;
+}
+
+// Pulls the template's own max-width so the appended section lines up
+// with the card above it instead of spanning full email width.
+function detectTemplateWidth(templateHtml, fallback = 600) {
+  const match = templateHtml.match(/max-width:\s*(\d{3,4})px/i);
+  return match ? parseInt(match[1], 10) : fallback;
+}
+
+// Pulls the body/page background so the appended section's outer strip
+// blends with the template instead of showing a mismatched color band.
+function detectPageBackground(templateHtml, fallback = '#f4f7fb') {
+  const match = templateHtml.match(/body[^>]*style=["'][^"']*background(?:-color)?:\s*([^;"']+)/i);
+  return match ? match[1].trim() : fallback;
+}
+
+// Boxes AI-written content so it visually reads as a closing section of
+// the template — same width, padded, boxed — rather than a bare <p> that
+// spans full width with no styling once it lands outside the card.
+function wrapAppendedContent(aiBody, templateHtml) {
+  const width = detectTemplateWidth(templateHtml);
+  const pageBg = detectPageBackground(templateHtml);
+  return `
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:${pageBg};">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:${width}px; background-color:#ffffff; border-top:1px solid #e2e8f0; border-radius:0 0 10px 10px; box-shadow:0 6px 18px rgba(0,0,0,0.06);">
         <tr>
-          <td style="padding:16px;">
-            <p style="margin:0 0 8px 0; font-size:22px; line-height:1;">${escapeHtml(s.icon)}</p>
-            <p style="margin:0 0 4px 0; font-size:13px; font-weight:700; color:${palette.title};">${escapeHtml(s.title)}</p>
-            <p style="margin:0; font-size:11.5px; line-height:1.5; color:${palette.desc};">${escapeHtml(s.description)}</p>
+          <td style="padding:22px 32px; font-size:14.5px; line-height:1.7; color:#334155; font-family:Arial, 'Segoe UI', sans-serif;">
+            ${aiBody}
           </td>
         </tr>
       </table>
-    </td>`;
-
-  const emptyCell = `<td width="50%" class="ec-service-empty" style="padding:6px;">&nbsp;</td>`;
-
-  let rows = '';
-  for (let i = 0; i < OUR_SERVICES.length; i += 2) {
-    const first = cell(OUR_SERVICES[i]);
-    const second = OUR_SERVICES[i + 1] ? cell(OUR_SERVICES[i + 1]) : emptyCell;
-    rows += `<tr>${first}${second}</tr>\n`;
-  }
-  return rows;
-}
-
-export function replacePlaceholders(str, customer) {
-  if (!str) return str;
-  const map = {
-    Name: customer.customerName || '',
-    City: customer.City || '',
-    Campaign: customer.Campaign || '',
-    ContactNumber: customer.ContactNumber || '',
-    Email: customer.Email || '',
-  };
-  let out = str;
-  for (const [key, val] of Object.entries(map)) {
-    out = out.replaceAll(`{{${key}}}`, val);
-  }
-  if (customer.CustomerFields) {
-    for (const [k, v] of Object.entries(customer.CustomerFields)) {
-      out = out.replaceAll(`{{CustomerFields.${k}}}`, v ?? '');
-    }
-  }
-  out = out.replaceAll('{{CUSTOMER_FIELDS_ROWS}}', renderCustomerFieldsRows(customer.CustomerFields, 'light'));
-  out = out.replaceAll('{{CUSTOMER_FIELDS_ROWS_DARK}}', renderCustomerFieldsRows(customer.CustomerFields, 'dark'));
-  out = out.replaceAll('{{OUR_SERVICES_ROWS}}', renderOurServicesRows('light'));
-  out = out.replaceAll('{{OUR_SERVICES_ROWS_DARK}}', renderOurServicesRows('dark'));
-  out = out.replaceAll('{{RESPONSIVE_STYLES}}', RESPONSIVE_STYLES);
-
-  // Safety net: a bulk AI template may reference a {{CustomerFields.x}}
-  // key this particular customer doesn't have. Strip anything left over
-  // instead of leaking a raw {{...}} token into the sent email.
-  out = out.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
-
-  return out;
+    </td>
+  </tr>
+</table>`;
 }
 
 export function mergeAiContentIntoTemplate(templateHtml, aiBody, customer) {
   let merged;
 
   if (templateHtml.includes('{{AI_CONTENT}}')) {
+    // Best case — template has a dedicated slot, content lands inline
+    // inside the existing design. No wrapping needed.
     merged = templateHtml.replace('{{AI_CONTENT}}', aiBody);
-  } else if (templateHtml.includes('</body>')) {
-    merged = templateHtml.replace('</body>', `<p>${aiBody}</p></body>`);
   } else {
-    // Fragment-style template with no anchor to insert into — e.g. a saved
-    // DB template body that isn't a full HTML document. Append instead of
-    // silently dropping the AI-written content.
-    merged = `${templateHtml}\n<p>${aiBody}</p>`;
+    const wrapped = wrapAppendedContent(aiBody, templateHtml);
+    merged = templateHtml.includes('</body>')
+      ? templateHtml.replace('</body>', `${wrapped}</body>`)
+      : `${templateHtml}\n${wrapped}`;
   }
 
   return replacePlaceholders(merged, customer);
 }
 
-// utils/mergeTemplate.js
-
-// ... keep everything you already have (toLabel, escapeHtml, renderCustomerFieldsRows, OUR_SERVICES, renderOurServicesRows, replacePlaceholders, mergeAiContentIntoTemplate) ...
-
 // ─────────────────────────────────────────────────────────────
-// Fallback template used whenever the frontend doesn't send a
-// templateHtml (i.e. user didn't pick one from the picker).
-// No branding/colors — just the AI message + the same info
-// sections every other template shows.
+// Fallback template — used ONLY when the "AI Generate" tab sends with no
+// template selected. Brand header/footer come from BRAND config. No
+// services grid, no CustomerFields dump — just the AI-written message.
 // ─────────────────────────────────────────────────────────────
 export const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -197,6 +254,11 @@ export const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
       <td align="center">
         <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;">
           <tr>
+            <td style="padding-bottom:8px;">
+              <p style="margin:0; font-size:12px; font-weight:700; letter-spacing:0.5px; color:{{BRAND.primaryColor}};">{{BRAND.companyName}}</p>
+            </td>
+          </tr>
+          <tr>
             <td style="padding-bottom:20px;">
               <p style="margin:0; font-size:14px; color:#64748b;">Hi {{Name}},</p>
             </td>
@@ -204,28 +266,13 @@ export const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
           <tr>
             <td style="padding-bottom:24px; color:#1e293b; font-size:15px; line-height:1.7;">
               <p style="margin:0 0 16px 0;">{{AI_CONTENT}}</p>
-              <p style="margin:0;">Best,<br>Creatik Ai Solution</p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:20px 0; border-top:1px solid #e2e8f0;">
-              <p style="margin:0 0 12px 0; font-size:11px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.6px; font-weight:700;">Domain Status</p>
-              <table border="0" cellpadding="0" cellspacing="0" width="100%">
-                {{CUSTOMER_FIELDS_ROWS}}
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:20px 0; border-top:1px solid #e2e8f0;">
-              <p style="margin:0 0 12px 0; font-size:11px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.6px; font-weight:700;">Our Services</p>
-              <table border="0" cellpadding="0" cellspacing="0" width="100%">
-                {{OUR_SERVICES_ROWS}}
-              </table>
+              <p style="margin:0;">Best,<br>{{BRAND.signOffName}}</p>
             </td>
           </tr>
           <tr>
             <td style="padding-top:20px; border-top:1px solid #e2e8f0;">
-              <p style="margin:0; font-size:12px; color:#94a3b8;">{{Email}} · {{ContactNumber}} · {{City}}</p>
+              <p style="margin:0 0 4px 0; font-size:12px; color:#94a3b8;">{{BRAND.phoneDisplay}} · {{BRAND.email}} · {{BRAND.websiteDisplay}}</p>
+              <p style="margin:0; font-size:11px; color:#cbd5e1;">{{BRAND.tagline}}</p>
             </td>
           </tr>
         </table>
@@ -235,16 +282,28 @@ export const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+export function collectAvailablePlaceholders(customers, maxDynamicKeys = 25) {
+  const staticKeys = ['Name', 'City', 'Campaign', 'ContactNumber', 'Email'];
+  const dynamicKeys = new Set();
+  for (const c of customers) {
+    if (c.CustomerFields && typeof c.CustomerFields === 'object') {
+      for (const k of Object.keys(c.CustomerFields)) dynamicKeys.add(k);
+    }
+  }
+  return [
+    ...staticKeys.map((k) => `{{${k}}}`),
+    ...[...dynamicKeys].slice(0, maxDynamicKeys).map((k) => `{{CustomerFields.${k}}}`),
+  ];
+}
 
-// Strips styles/scripts/tags and unresolved {{tokens}} so the AI reads
-// clean prose describing the template's tone/sections — not markup noise.
 export function extractTemplateContext(html, maxLength = 3000) {
   if (!html) return '';
   let text = html
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/\{\{[^}]+\}\}/g, '')            // drop raw {{Name}}, {{AI_CONTENT}}, etc.
+    .replace(/\{\{[^}]+\}\}/g, '')
+    .replace(/\[[A-Za-z][A-Za-z0-9 _-]{0,60}\]/g, '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|tr|table|li|h[1-6])>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
@@ -255,36 +314,11 @@ export function extractTemplateContext(html, maxLength = 3000) {
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s*\n+/g, '\n')
     .trim();
-
   if (text.length > maxLength) text = text.slice(0, maxLength) + '…';
   return text;
 }
 
-// Tells the AI where its copy actually lands: a designated slot mid-template,
-// or tacked on after a template that was never built with an AI slot in mind.
 export function getTemplateInsertionMode(html) {
   if (!html) return 'none';
   return html.includes('{{AI_CONTENT}}') ? 'placeholder' : 'append';
-}
-
-
-
-// Builds the list of {{...}} tokens the AI may use when writing ONE
-// reusable template for a batch of different customers. Static fields
-// are always available, plus the union of CustomerFields keys actually
-// present across the selected customers (capped to keep the prompt small).
-export function collectAvailablePlaceholders(customers, maxDynamicKeys = 25) {
-  const staticKeys = ['Name', 'City', 'Campaign', 'ContactNumber', 'Email'];
-  const dynamicKeys = new Set();
-
-  for (const c of customers) {
-    if (c.CustomerFields && typeof c.CustomerFields === 'object') {
-      for (const k of Object.keys(c.CustomerFields)) dynamicKeys.add(k);
-    }
-  }
-
-  return [
-    ...staticKeys.map((k) => `{{${k}}}`),
-    ...[...dynamicKeys].slice(0, maxDynamicKeys).map((k) => `{{CustomerFields.${k}}}`),
-  ];
 }
