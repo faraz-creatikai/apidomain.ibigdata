@@ -794,6 +794,10 @@ export const sendEmailDirectToCustomers = async (req, res, next) => {
       mode,
     });
 
+    // TEMP DEBUG — remove once working
+console.log("[slots-debug] validSlotDefs:", JSON.stringify(validSlotDefs.map(s => s.id)));
+console.log("[slots-debug] EmailResponse:", JSON.stringify(EmailResponse, null, 2));
+
     baseSubject = EmailResponse?.email?.subject || "";
     const slotsReturned = EmailResponse?.slots || {};
     metadata = EmailResponse?.metadata || {};

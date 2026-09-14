@@ -1306,8 +1306,8 @@ export const getCustomerById = async (req, res, next) => {
       return next(new ApiError(403, "Access denied"));
 
     // role: city_admin → only same city
-    if (admin.role === "city_admin" && customer.City !== admin.city)
-      return next(new ApiError(403, "Access denied"));
+/*     if (admin.role === "city_admin" && customer.City !== admin.city)
+      return next(new ApiError(403, "Access denied")); */
 
     const response = await transformCustomer(customer);
     res.status(200).json(response);

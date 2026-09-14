@@ -174,8 +174,8 @@ export const createAdmin = async (req, res) => {
     if (existingAdmin)
       throw new ApiError(409, "Account already exists");
 
-  /*   if ((role === "city_admin" || role === "user") && !city)
-      throw new ApiError(400, "City is required for this role"); */
+    /*   if ((role === "city_admin" || role === "user") && !city)
+        throw new ApiError(400, "City is required for this role"); */
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -474,7 +474,7 @@ export const updateAdminDetails = async (req, res) => {
 
       // administrator can change any role
       if (currentAdmin.role === "administrator") {
-          if (currentAdmin.isSuperAdmin && targetAdmin.id === currentAdmin.id && req.body.role !== targetAdmin.role) {
+        if (currentAdmin.isSuperAdmin && targetAdmin.id === currentAdmin.id && req.body.role !== targetAdmin.role) {
           throw new ApiError(403, "Owner cannot change their own role");
         }
         updates.role = req.body.role;
