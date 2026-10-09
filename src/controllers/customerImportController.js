@@ -54,7 +54,7 @@ const COUNTRY_CODES = [
   { code: "61",  lengths: [9] },
   { code: "60",  lengths: [9, 10] },
   { code: "49",  lengths: [10, 11] },
-  { code: "44",  lengths: [10] },
+  { code: "44",  lengths: [10, 11] },
   { code: "33",  lengths: [9] },
   { code: "27",  lengths: [9] },
   { code: "20",  lengths: [10] },
