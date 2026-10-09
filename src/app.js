@@ -53,6 +53,7 @@ import path from "path";
 import mcpRoutes from "./routes/route.mcp.js";
 import brandRoutes from "./routes/brandRoutes.js";
 import activityRoutes from "./routes/activityRoutes.js";
+import sarvamCallingRoutes from "./routes/sarvamCallingRoutes.js";
 
 const app = express();
 app.use(cookieParser());
@@ -70,7 +71,8 @@ app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // Routes
 
-app.use("/api/brand",brandRoutes);
+app.use("/api/brand", brandRoutes);
+app.use("/api/sarvam", sarvamCallingRoutes);
 app.use("/api/user", requestUserRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/mas/customerFields", customerFieldsRoutes);
@@ -117,7 +119,7 @@ app.use("/api/salesscript", salesScriptRoutes);
 app.use("/api/tabbly", tabblyRoutes);
 app.use("/api/video-project", videoProjectRoutes);
 app.use("/api/activity", activityRoutes);
-app.use("/api/mcp",mcpRoutes);
+app.use("/api/mcp", mcpRoutes);
 
 app.use(errorHandler);
 
