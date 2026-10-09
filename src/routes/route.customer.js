@@ -50,7 +50,7 @@ import { isCityAdminOrAbove, protectRoute } from "../middlewares/auth.js";
 import { uploadExcel } from "../middlewares/uploadExcel.js";
 import {
   importCustomers,
-  readCustomerHeaders, // ✅ <-- Import new header reader
+  readCustomerHeaders, // <-- Import new header reader
 } from "../controllers/customerImportController.js";
 
 

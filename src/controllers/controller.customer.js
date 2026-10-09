@@ -1984,6 +1984,7 @@ export const assignCustomer = async (req, res, next) => {
       prisma.customer.update({
         where: { id: customer.id },
         data: {
+          updatedAt: new Date(),
           AssignTo: {
             [prismaRelationAction]: assignToId.map((id) => ({ id })),
           },
